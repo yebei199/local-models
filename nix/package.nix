@@ -59,5 +59,8 @@ symlinkJoin {
     wait = command "model-wait" "backend" "wait";
     vram = command "model-vram" "backend" "vram";
   };
-  meta.mainProgram = "tts";
+  meta = {
+    license = lib.licenses.gpl3Only;
+    mainProgram = "tts";
+  };
 }
