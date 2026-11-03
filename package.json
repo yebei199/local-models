@@ -1,0 +1,11 @@
+{
+  "name": "local-models",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "biome ci --error-on-warnings . && tsc -p . && bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2"
+  }
+}
