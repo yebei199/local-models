@@ -10,19 +10,35 @@ function gpu(dir: string, free: string): Record<string, string> {
 }
 
 test('vram passes when the card has room', async () => {
-  expect((await run('backend', ['vram', '9000'], gpu(scratch(), '12000'))).status).toBe(0);
+  expect((await run('backend', ['vram', '9000', '0'], gpu(scratch(), '12000'))).status).toBe(0);
 });
 
 test('vram refuses to start beside a job holding the card', async () => {
-  const result = await run('backend', ['vram', '9000'], gpu(scratch(), '4000'));
+  const result = await run('backend', ['vram', '9000', '0'], gpu(scratch(), '4000'));
   expect(result.status).toBe(1);
   expect(result.stderr).toContain('Only 4000 MiB');
+});
+
+test('vram waits for a finished job to release the card', async () => {
+  const dir = scratch();
+  const count = join(dir, 'count');
+  const bin = fakeTool(
+    dir,
+    'nvidia-smi',
+    `import { appendFileSync, existsSync } from 'node:fs';
+console.log(existsSync(${JSON.stringify(count)}) ? '12000' : '3000');
+appendFileSync(${JSON.stringify(count)}, 'x');`,
+  );
+  const result = await run('backend', ['vram', '9000', '5'], {
+    PATH: `${bin}:${process.env.PATH}`,
+  });
+  expect(result).toMatchObject({ status: 0 });
 });
 
 test('unreadable VRAM counts as a refusal', async () => {
   const dir = scratch();
   const bin = fakeTool(dir, 'nvidia-smi', 'process.exit(9);');
-  const result = await run('backend', ['vram', '1'], { PATH: `${bin}:${process.env.PATH}` });
+  const result = await run('backend', ['vram', '1', '0'], { PATH: `${bin}:${process.env.PATH}` });
   expect(result.status).toBe(1);
 });
 

@@ -21,7 +21,8 @@ ComfyUI 和 TTS 结构相同：socket 收到第一个请求时拉起 `systemd-so
 `idleTime`（默认 15 分钟）后一起退出，显存还回去。
 
 - TTS 常驻约 8 GiB，和 ComfyUI 不能同时在显存里。`scene-*` 开工前先停 `tts-backend.service`。
-- 反方向不杀任务：TTS 启动前查空闲显存，低于 `tts.requiredVram` 就拒绝启动。
+- 反方向不杀任务：TTS 启动前查空闲显存，等 30 秒仍低于 `tts.requiredVram` 就拒绝启动。等待是因为
+  ComfyUI 的 `/free` 先返回，权重几秒后才离开显存。
 - 服务只绑回环。远程的 `tts` 用 `ssh -L` 把私有 unix socket 转发到服务端口。
 
 RTX 5080 上的实测：冷启动约 35 秒，之后实时率约 0.8。不需要 flash-attn，上游的 `api.py`

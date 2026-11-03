@@ -167,7 +167,7 @@ in
           "HF_HUB_OFFLINE=1"
           "TOKENIZERS_PARALLELISM=false"
         ];
-        ExecStartPre = "${lib.getExe' package.service.vram "model-vram"} ${toString cfg.tts.requiredVram}";
+        ExecStartPre = "${lib.getExe' package.service.vram "model-vram"} ${toString cfg.tts.requiredVram} 30";
         ExecStart = "${cfg.tts.directory}/.venv/bin/python -m breeze_infer.api ${cfg.tts.modelDirectory} --host 127.0.0.1 --port ${toString cfg.tts.backendPort}";
         ExecStartPost = lib.getExe' package.service.wait "model-wait";
         TimeoutStartSec = 300;

@@ -66,8 +66,8 @@ async function start(port: string): Promise<number> {
   }
 }
 
-/** Refuse to start beside a job that holds the card: an OOM here has locked the screen before. */
-function requireVram(needed: string): void {
+/** Free MiB on the first GPU. */
+function freeVram(): number {
   const p = Bun.spawnSync([
     'nvidia-smi',
     '--query-gpu=memory.free',
@@ -75,7 +75,18 @@ function requireVram(needed: string): void {
   ]);
   const free = Number(p.stdout.toString().split('\n')[0]);
   if (p.exitCode || !Number.isFinite(free)) throw new Error('Cannot read free VRAM');
-  if (free < Number(needed)) throw new Error(`Only ${free} MiB VRAM free, need ${needed} MiB`);
+  return free;
+}
+
+/** Refuse to start beside a job holding the card, but give a finished one time to let go:
+ * ComfyUI's /free answers seconds before the weights actually leave. */
+async function requireVram(needed: number, seconds: number): Promise<void> {
+  let free = freeVram();
+  for (let waited = 0; free < needed && waited < seconds; waited++) {
+    await Bun.sleep(1000);
+    free = freeVram();
+  }
+  if (free < needed) throw new Error(`Only ${free} MiB VRAM free, need ${needed} MiB`);
 }
 
 /** The port every port-bound subcommand operates on. */
@@ -97,11 +108,12 @@ async function wait(port: string): Promise<void> {
 
 if (import.meta.main) {
   try {
-    const [command, value] = process.argv.slice(2);
+    const [command, needed, seconds] = process.argv.slice(2);
     if (command === 'wait') await wait(portFromEnvironment());
     else if (command === 'start') process.exitCode = await start(portFromEnvironment());
-    else if (command === 'vram' && value) requireVram(value);
-    else throw new Error('Usage: backend start|wait|vram MIB');
+    else if (command === 'vram' && needed && seconds)
+      await requireVram(Number(needed), Number(seconds));
+    else throw new Error('Usage: backend start|wait|vram MIB SECONDS');
   } catch (error) {
     console.error(String(error));
     process.exitCode = 1;
