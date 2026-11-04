@@ -122,6 +122,7 @@ in
         ExecStart = lib.getExe' package.service.comfyui "comfyui-backend";
         ExecStartPost = lib.getExe' package.service.wait "model-wait";
         TimeoutStopSec = 30;
+        SuccessExitStatus = [ 143 ];
         Restart = "no";
       };
     };
