@@ -84,9 +84,11 @@ in
   config = lib.mkIf cfg.enable {
     home.packages = [ package ];
 
+    # socket 也要 keep-old：重启 socket 会经 Requires 带停正在跑的后端。换端口后手动重启 socket 才生效。
     systemd.user.sockets.comfyui = {
       Unit = {
         Description = "Socket that starts ComfyUI on the first request";
+        X-SwitchMethod = "keep-old";
       }
       // comfyCondition;
       Socket.ListenStream = "127.0.0.1:${toString cfg.comfyui.frontPort}";
@@ -130,6 +132,7 @@ in
     systemd.user.sockets.tts = {
       Unit = {
         Description = "Socket that starts Breeze-TTS-2 on the first request";
+        X-SwitchMethod = "keep-old";
       }
       // ttsCondition;
       Socket.ListenStream = "127.0.0.1:${toString cfg.tts.frontPort}";
