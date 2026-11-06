@@ -20,6 +20,10 @@ let
     root = ../.;
     fileset = lib.fileset.fileFilter (file: !file.hasExt "md") ../src;
   };
+  engines = lib.fileset.toSource {
+    root = ../engines;
+    fileset = ../engines;
+  };
   path = lib.makeBinPath [
     bash
     coreutils
@@ -41,6 +45,8 @@ let
     name: entry: args:
     writeShellScriptBin name ''
       export PATH="${path}:$PATH"
+      # bun 的 fetch 会走代理环境变量，模型主机的回环请求不能经过它。
+      export NO_PROXY="127.0.0.1,localhost''${NO_PROXY:+,$NO_PROXY}"
       ${exports}
       exec ${lib.getExe bun} ${source}/src/${entry}.ts -- ${args} "$@"
     '';
@@ -57,8 +63,9 @@ symlinkJoin {
   passthru.service = {
     comfyui = command "comfyui-backend" "backend" "start";
     wait = command "model-wait" "backend" "wait";
-    vram = command "model-vram" "backend" "vram";
+    gate = command "model-gate" "gate" "";
   };
+  passthru.engines = engines;
   meta = {
     license = lib.licenses.gpl3Only;
     mainProgram = "tts";

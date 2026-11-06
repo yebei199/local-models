@@ -1,0 +1,734 @@
+<!doctype html>
+<!-- Listening bench for voice cloning. Audio stays on the model host: manifest.js and media/ are
+     untracked, so the public repo holds no voice data. manifest.js sets window.AUDITION = {
+     models: [{ id, name, video, langs }], sentences: { lang: [text] },
+     voices: [{ id, name, lang, refLang, featured, source, ref, refText }],
+     clips: [{ id, item, model, voice, sentence, seconds, file }], decided: { lang: item } }.
+     A clip is one model reading one sentence in one reference voice; an item is the model and
+     voice pair, which is what a decision names. -->
+<html lang="zh">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>音色对比</title>
+    <style>
+    :root {
+      color-scheme: light dark;
+      --ink: light-dark(#231e24, #ebe6ec);
+      --muted: light-dark(#6d6470, #a59ba8);
+      --line: light-dark(#ddd6de, #3a333c);
+      --paper: light-dark(#ffffff, #1b171d);
+      --ground: light-dark(#f6f3f6, #121013);
+      --mark: light-dark(#a82c78, #f07fbd);
+      --on-mark: light-dark(#ffffff, #1b171d);
+      --tint: light-dark(#f8e8f2, #3a2231);
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html,
+    body {
+      height: 100%;
+    }
+    body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      margin: 0;
+      background: var(--ground);
+      color: var(--ink);
+      font:
+        14px / 1.5 system-ui,
+        "Noto Sans CJK SC",
+        sans-serif;
+    }
+    :lang(ja) {
+      font-family: system-ui, "Noto Sans CJK JP", sans-serif;
+    }
+    button,
+    select {
+      padding: 4px 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--paper);
+      color: inherit;
+      font: inherit;
+    }
+    button {
+      cursor: pointer;
+    }
+    button:focus-visible,
+    select:focus-visible {
+      outline: 2px solid var(--mark);
+      outline-offset: 1px;
+    }
+    header,
+    footer {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      align-items: center;
+      padding: 10px 16px;
+      background: var(--paper);
+    }
+    header {
+      border-bottom: 1px solid var(--line);
+    }
+    footer {
+      border-top: 1px solid var(--line);
+    }
+    h1 {
+      margin: 0;
+      font-size: 16px;
+    }
+    .group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      align-items: center;
+    }
+    [aria-pressed="true"] {
+      border-color: var(--mark);
+      background: var(--tint);
+      color: var(--mark);
+      font-weight: 600;
+    }
+    #decisions {
+      flex: 1 1 100%;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    #decisions b {
+      color: var(--ink);
+      font-weight: 600;
+    }
+    #export {
+      margin-left: auto;
+    }
+    #sentences {
+      flex: 1 1 100%;
+    }
+    #models label {
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+    }
+    main {
+      overflow: auto;
+    }
+    table {
+      border-collapse: separate;
+      border-spacing: 0;
+      min-width: 100%;
+    }
+    th,
+    td {
+      padding: 8px 10px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background: var(--paper);
+      text-align: left;
+      vertical-align: top;
+      font-weight: 400;
+    }
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      min-width: 168px;
+      font-weight: 600;
+    }
+    tbody th,
+    tfoot th {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      width: 300px;
+      min-width: 300px;
+      max-width: 300px;
+    }
+    thead th:first-child {
+      left: 0;
+      z-index: 3;
+    }
+    .section th {
+      position: sticky;
+      left: 0;
+      width: auto;
+      max-width: none;
+      padding: 4px 10px;
+      background: var(--ground);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .use {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 400;
+    }
+    .use.video {
+      color: var(--mark);
+    }
+    .name {
+      font-weight: 600;
+    }
+    .ref-text {
+      overflow: hidden;
+      margin: 2px 0 6px;
+      color: var(--muted);
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .row-actions {
+      display: flex;
+      gap: 4px;
+    }
+    .row-actions button {
+      padding: 1px 8px;
+      font-size: 12px;
+    }
+    .play {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      font-variant-numeric: tabular-nums;
+    }
+    .play.playing {
+      border-color: var(--mark);
+      background: var(--mark);
+      color: var(--on-mark);
+    }
+    .marks {
+      display: flex;
+      gap: 2px;
+      margin-top: 6px;
+    }
+    .marks button {
+      flex: 1;
+      padding: 0;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    .marks .on {
+      border-color: var(--mark);
+      background: var(--tint);
+      color: var(--mark);
+    }
+    .marks .decide {
+      flex: 1.6;
+    }
+    td.final {
+      background: var(--tint);
+      box-shadow: inset 0 0 0 2px var(--mark);
+    }
+    .missing,
+    tfoot td {
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    #now {
+      flex: 1 1 260px;
+      min-width: 0;
+    }
+    #now b {
+      display: block;
+      font-weight: 600;
+    }
+    #now span {
+      display: block;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    audio {
+      flex: 1 1 320px;
+      height: 36px;
+    }
+    kbd {
+      padding: 0 4px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      font: inherit;
+    }
+    #keys {
+      flex: 1 1 100%;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    #sentences button {
+      flex: 1 1 320px;
+      text-align: left;
+    }
+    .empty {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--muted);
+    }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>音色对比</h1>
+      <div class="group" id="langs">
+        <button type="button" data-lang="ja">日语</button>
+        <button type="button" data-lang="en">英语</button>
+        <button type="button" data-lang="zh">中文</button>
+      </div>
+      <label
+        >声线
+        <select id="scope">
+          <option value="featured">重点声线</option>
+          <option value="all">全部角色</option>
+        </select>
+      </label>
+      <div class="group" id="models"></div>
+      <button type="button" id="export">导出结果</button>
+      <div class="group" id="sentences"></div>
+      <div id="decisions"></div>
+    </header>
+    <main></main>
+    <footer>
+      <div id="now"><b>还没有播放</b><span>点格子里的播放键开始对比</span></div>
+      <label
+        >语速
+        <select id="speed">
+          <option value="1">1×</option>
+          <option value="0.75">0.75×</option>
+          <option value="0.5">0.5×</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="loop"> 循环</label>
+      <div id="keys">
+        <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> 换格并播放 · <kbd>空格</kbd> 播放或暂停
+        ·
+        <kbd>R</kbd>
+        听本行原声 · <kbd>P</kbd> 连播本行 · <kbd>S</kbd> 换句子 ·
+        <kbd>1</kbd>–<kbd>5</kbd>
+        打分 · <kbd>F</kbd> 定为此语言音色
+      </div>
+    </footer>
+
+    <script src="manifest.js"></script>
+    <script>
+    const storageKey = 'audition-picks';
+    const languages = { ja: '日语', en: '英语', zh: '中文' };
+    const data = window.AUDITION ?? {
+      models: [],
+      sentences: {},
+      voices: [],
+      clips: [],
+      decided: {},
+    };
+    const stored = JSON.parse(localStorage.getItem(storageKey) ?? '{}');
+    const picks = {
+      final: { ...data.decided, ...stored.final },
+      scores: stored.scores ?? {},
+      hidden: stored.hidden ?? [],
+    };
+    const view = { lang: 'ja', sentence: 0, scope: 'featured' };
+    const clips = new Map(data.clips.map((clip) => [clip.id, clip]));
+    const main = document.querySelector('main');
+    const audio = document.createElement('audio');
+    const now = document.querySelector('#now');
+    audio.controls = true;
+    now.after(audio);
+    let current = null;
+    let queue = [];
+
+    /** Create an element with text, keeping manifest strings out of the HTML parser. */
+    function element(tag, text, className) {
+      const node = document.createElement(tag);
+      if (text) node.textContent = text;
+      if (className) node.className = className;
+      return node;
+    }
+
+    function button(text, className, onClick) {
+      const node = element('button', text, className);
+      node.type = 'button';
+      node.addEventListener('click', onClick);
+      return node;
+    }
+
+    function save() {
+      localStorage.setItem(storageKey, JSON.stringify(picks));
+    }
+
+    const modelName = (id) => data.models.find((model) => model.id === id)?.name ?? id;
+    const voiceName = (id) => data.voices.find((voice) => voice.id === id)?.name ?? id;
+    const clipAt = (model, voice) => clips.get(`${model}/${voice}/${view.sentence}`);
+
+    function visibleModels() {
+      return data.models.filter(
+        (model) => model.langs.includes(view.lang) && !picks.hidden.includes(model.id),
+      );
+    }
+
+    function visibleVoices() {
+      return data.voices.filter(
+        (voice) => voice.lang === view.lang && (view.scope === 'all' || voice.featured),
+      );
+    }
+
+    function clipEntry(clip) {
+      return {
+        id: clip.id,
+        file: clip.file,
+        label: `${modelName(clip.model)} · ${voiceName(clip.voice)}`,
+        text: data.sentences[view.lang][clip.sentence],
+      };
+    }
+
+    function refEntry(voice) {
+      return {
+        id: `ref/${voice.id}`,
+        file: voice.ref,
+        label: `原声 · ${voice.name}`,
+        text: voice.refText,
+      };
+    }
+
+    /** The reference leads the row, so each clone is heard right after what it should match. */
+    function rowEntries(voice) {
+      const row = visibleModels().map((model) => clipAt(model.id, voice.id));
+      const clones = row.filter(Boolean).map(clipEntry);
+      return voice.ref ? [refEntry(voice), ...clones] : clones;
+    }
+
+    /** Both the cell and the bottom bar follow the clip that is actually loaded. */
+    function showPlaying() {
+      for (const node of document.querySelectorAll('[data-entry]'))
+        node.classList.toggle('playing', node.dataset.entry === current?.id && !audio.paused);
+      if (!current) return;
+      now.replaceChildren(element('b', current.label), element('span', current.text));
+    }
+
+    function load(entry) {
+      current = entry;
+      audio.src = entry.file;
+      audio.playbackRate = Number(document.querySelector('#speed').value);
+      audio.play();
+    }
+
+    /** A second press on the same clip pauses, so one key covers start and stop. */
+    function toggle(entry) {
+      queue = [];
+      if (current?.id !== entry.id) load(entry);
+      else if (audio.paused) audio.play();
+      else audio.pause();
+    }
+
+    function playRow(voice) {
+      const [first, ...rest] = rowEntries(voice);
+      document.querySelector('#loop').checked = false;
+      audio.loop = false;
+      queue = rest;
+      load(first);
+    }
+
+    function setScore(clip, score) {
+      if (picks.scores[clip.id] === score) delete picks.scores[clip.id];
+      else picks.scores[clip.id] = score;
+      save();
+      render(clip.id);
+    }
+
+    function decide(clip) {
+      picks.final[view.lang] = clip.item;
+      save();
+      render(clip.id);
+    }
+
+    function marks(clip) {
+      const row = element('div', '', 'marks');
+      for (const score of [1, 2, 3, 4, 5]) {
+        const node = button(String(score), '', () => setScore(clip, score));
+        node.tabIndex = -1;
+        node.title = `打 ${score} 分`;
+        node.classList.toggle('on', picks.scores[clip.id] >= score);
+        row.append(node);
+      }
+      const chosen = picks.final[view.lang] === clip.item;
+      const final = button(chosen ? '已定' : '定', 'decide', () => decide(clip));
+      final.tabIndex = -1;
+      final.title = `定为${languages[view.lang]}音色`;
+      final.classList.toggle('on', chosen);
+      row.append(final);
+      return row;
+    }
+
+    function cell(model, voice) {
+      const td = element('td');
+      const clip = clipAt(model.id, voice.id);
+      if (!clip) {
+        td.append(element('span', '这一行没有', 'missing'));
+        return td;
+      }
+      const play = button('', 'play', () => toggle(clipEntry(clip)));
+      play.dataset.entry = clip.id;
+      play.dataset.clip = clip.id;
+      play.append(element('span', '▶ 播放'), element('span', `${clip.seconds.toFixed(1)} 秒`));
+      td.classList.toggle('final', picks.final[view.lang] === clip.item);
+      td.append(play, marks(clip));
+      return td;
+    }
+
+    function voiceHeader(voice) {
+      const th = element('th');
+      th.scope = 'row';
+      const text = element('p', voice.refText, 'ref-text');
+      text.lang = voice.refLang;
+      text.title = voice.refText;
+      const actions = element('div', '', 'row-actions');
+      if (voice.ref) {
+        const ref = button('▶ 原声', '', () => toggle(refEntry(voice)));
+        ref.dataset.entry = `ref/${voice.id}`;
+        actions.append(ref);
+      }
+      actions.append(button('连播本行', '', () => playRow(voice)));
+      th.append(element('div', voice.name, 'name'), text, actions);
+      return th;
+    }
+
+    function voiceRow(voice, models) {
+      const tr = element('tr');
+      tr.dataset.voice = voice.id;
+      tr.append(voiceHeader(voice), ...models.map((model) => cell(model, voice)));
+      return tr;
+    }
+
+    function sectionRow(text, span) {
+      const tr = element('tr', '', 'section');
+      const th = element('th', text);
+      th.colSpan = span;
+      tr.append(th);
+      return tr;
+    }
+
+    function modelHeader(model) {
+      const th = element('th', model.name);
+      th.scope = 'col';
+      const use = model.video ? '可做视频' : '仅自用';
+      th.append(element('span', use, model.video ? 'use video' : 'use'));
+      return th;
+    }
+
+    /** Averages only cover the current language, because a model can differ a lot between them. */
+    function average(model) {
+      const scores = data.clips
+        .filter((clip) => clip.model === model.id && picks.scores[clip.id])
+        .filter((clip) => data.voices.find((voice) => voice.id === clip.voice)?.lang === view.lang)
+        .map((clip) => picks.scores[clip.id]);
+      if (scores.length === 0) return '未评分';
+      const mean = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+      return `${mean.toFixed(1)} 分 · ${scores.length} 条`;
+    }
+
+    function table() {
+      const models = visibleModels();
+      const voices = visibleVoices();
+      const span = models.length + 1;
+      const head = element('tr');
+      head.append(element('th', '音色'), ...models.map(modelHeader));
+      const thead = element('thead');
+      thead.append(head);
+      const tbody = element('tbody');
+      const sections = [
+        ['不用参考音频的声线', voices.filter((voice) => !voice.ref)],
+        ['跨语言参考', voices.filter((voice) => voice.ref && voice.refLang !== view.lang)],
+        ['同语言参考', voices.filter((voice) => voice.ref && voice.refLang === view.lang)],
+      ];
+      for (const [title, rows] of sections) {
+        if (rows.length === 0) continue;
+        tbody.append(sectionRow(title, span), ...rows.map((voice) => voiceRow(voice, models)));
+      }
+      const foot = element('tr');
+      foot.append(element('th', '当前语言均分'));
+      for (const model of models) foot.append(element('td', average(model)));
+      const tfoot = element('tfoot');
+      tfoot.append(foot);
+      const node = element('table');
+      node.append(thead, tbody, tfoot);
+      return node;
+    }
+
+    function modelToggles() {
+      const nodes = data.models
+        .filter((model) => model.langs.includes(view.lang))
+        .map((model) => {
+          const label = element('label');
+          const box = element('input');
+          box.type = 'checkbox';
+          box.checked = !picks.hidden.includes(model.id);
+          box.addEventListener('change', () => {
+            picks.hidden = box.checked
+              ? picks.hidden.filter((id) => id !== model.id)
+              : [...picks.hidden, model.id];
+            save();
+            render();
+          });
+          label.append(box, model.name);
+          return label;
+        });
+      document.querySelector('#models').replaceChildren(...nodes);
+    }
+
+    function sentenceTabs() {
+      const nodes = data.sentences[view.lang].map((text, index) => {
+        const node = button(`${index + 1}. ${text}`, '', () => {
+          view.sentence = index;
+          render();
+        });
+        node.lang = view.lang;
+        node.setAttribute('aria-pressed', String(index === view.sentence));
+        return node;
+      });
+      document.querySelector('#sentences').replaceChildren(...nodes);
+    }
+
+    function decisions() {
+      const nodes = Object.entries(languages).flatMap(([lang, label]) => {
+        const item = picks.final[lang];
+        const [model, voice] = item?.split('/') ?? [];
+        const value = item ? `${voiceName(voice)}（${modelName(model)}）` : '未定';
+        return [`${label}：`, element('b', value), '　'];
+      });
+      document.querySelector('#decisions').replaceChildren(...nodes);
+    }
+
+    /** Redraw everything; focus is restored because keyboard scoring must not lose its place. */
+    function render(focus) {
+      for (const node of document.querySelectorAll('[data-lang]'))
+        node.setAttribute('aria-pressed', String(node.dataset.lang === view.lang));
+      modelToggles();
+      sentenceTabs();
+      decisions();
+      const scroll = [main.scrollLeft, main.scrollTop];
+      main.replaceChildren(
+        data.clips.length
+          ? table()
+          : element('p', '没有试听数据，请先在模型主机上运行 build.py。', 'empty'),
+      );
+      [main.scrollLeft, main.scrollTop] = scroll;
+      if (focus) document.querySelector(`[data-clip="${focus}"]`)?.focus();
+      showPlaying();
+    }
+
+    const focusedClip = () => clips.get(document.activeElement?.dataset?.clip);
+
+    function focusedVoice() {
+      const voice = focusedClip()?.voice;
+      return data.voices.find((candidate) => candidate.id === voice);
+    }
+
+    /** Walk the grid past empty cells; moving also plays, so comparing needs one key per clip. */
+    function move(rowStep, columnStep) {
+      const rows = [...main.querySelectorAll('tr[data-voice]')];
+      const here = document.activeElement?.closest('td');
+      if (!here) {
+        main.querySelector('.play')?.focus();
+        return;
+      }
+      let row = rows.indexOf(here.parentElement) + rowStep;
+      let column = here.cellIndex + columnStep;
+      while (rows[row]?.cells[column]) {
+        const play = rows[row].cells[column].querySelector('.play');
+        if (play) {
+          play.focus();
+          play.click();
+          return;
+        }
+        row += rowStep;
+        column += columnStep;
+      }
+    }
+
+    function nextSentence() {
+      const clip = focusedClip();
+      view.sentence = (view.sentence + 1) % data.sentences[view.lang].length;
+      render(clip && `${clip.model}/${clip.voice}/${view.sentence}`);
+    }
+
+    function withVoice(action) {
+      const voice = focusedVoice();
+      if (voice) action(voice);
+    }
+
+    function withClip(action) {
+      const clip = focusedClip();
+      if (clip) action(clip);
+    }
+
+    const keys = {
+      ArrowLeft: () => move(0, -1),
+      ArrowRight: () => move(0, 1),
+      ArrowUp: () => move(-1, 0),
+      ArrowDown: () => move(1, 0),
+      s: nextSentence,
+      r: () => withVoice((voice) => voice.ref && toggle(refEntry(voice))),
+      p: () => withVoice(playRow),
+      f: () => withClip(decide),
+      1: () => withClip((clip) => setScore(clip, 1)),
+      2: () => withClip((clip) => setScore(clip, 2)),
+      3: () => withClip((clip) => setScore(clip, 3)),
+      4: () => withClip((clip) => setScore(clip, 4)),
+      5: () => withClip((clip) => setScore(clip, 5)),
+    };
+
+    document.addEventListener('keydown', (event) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.target.closest('select, input, audio')) return;
+      const action = keys[event.key.toLowerCase()] ?? keys[event.key];
+      if (!action) return;
+      event.preventDefault();
+      action();
+    });
+
+    for (const node of document.querySelectorAll('[data-lang]'))
+      node.addEventListener('click', () => {
+        view.lang = node.dataset.lang;
+        view.sentence = 0;
+        render();
+      });
+
+    document.querySelector('#scope').addEventListener('change', (event) => {
+      view.scope = event.target.value;
+      render();
+    });
+
+    document.querySelector('#speed').addEventListener('change', (event) => {
+      audio.playbackRate = Number(event.target.value);
+    });
+
+    document.querySelector('#loop').addEventListener('change', (event) => {
+      audio.loop = event.target.checked;
+    });
+
+    for (const type of ['play', 'pause']) audio.addEventListener(type, showPlaying);
+
+    audio.addEventListener('ended', () => {
+      const next = queue.shift();
+      if (next) load(next);
+      else showPlaying();
+    });
+
+    document.querySelector('#export').addEventListener('click', () => {
+      const link = element('a');
+      const result = { final: picks.final, scores: picks.scores };
+      link.href = URL.createObjectURL(
+        new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }),
+      );
+      link.download = 'picks.json';
+      link.click();
+      URL.revokeObjectURL(link.href);
+    });
+
+    render();
+    </script>
+  </body>
+</html>

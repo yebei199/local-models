@@ -18,8 +18,6 @@ let
     environment = {
       TTS_HOST = cfg.host;
       TTS_PORT = toString cfg.tts.frontPort;
-      TTS_VOICE = cfg.tts.voice;
-      TTS_VOICE_TEXT = cfg.tts.voiceText;
       COMFYUI_URL = cfg.comfyui.url;
       COMFYUI_DIR = cfg.comfyui.directory;
       CUDA_LIB = cfg.cudaLibraryPath;
@@ -30,6 +28,80 @@ let
     ExecStart = "${pkgs.systemd}/lib/systemd/systemd-socket-proxyd --exit-idle-time=${cfg.idleTime} 127.0.0.1:${toString target}";
     PrivateTmp = true;
   };
+  # 模型互斥占用显存，由 model-gate 逐个拉起，所以都只有一个私有端口。
+  python = directory: "${directory}/.venv/bin/python";
+  enginePort = toString cfg.tts.enginePort;
+  cuda = {
+    LD_LIBRARY_PATH = cfg.cudaLibraryPath;
+    # NixOS 没有 /sbin/ldconfig，Triton 要靠它找 libcuda，否则 Qwen 首次合成就失败。
+    TRITON_LIBCUDA_PATH = cfg.cudaLibraryPath;
+    HF_HUB_OFFLINE = "1";
+    TOKENIZERS_PARALLELISM = "false";
+  };
+  engines = {
+    breeze = {
+      inherit (cfg.tts) directory;
+      command = [
+        (python cfg.tts.directory)
+        "-m"
+        "breeze_infer.api"
+        cfg.tts.modelDirectory
+        "--host"
+        "127.0.0.1"
+        "--port"
+        enginePort
+      ];
+      environment = cuda // {
+        PATH = "${lib.makeBinPath [ pkgs.sox ]}:/run/current-system/sw/bin";
+      };
+      vram = cfg.tts.requiredVram;
+    };
+  }
+  // lib.optionalAttrs (cfg.tts.qwen != null) {
+    qwen = {
+      inherit (cfg.tts.qwen) directory;
+      command = [
+        (python cfg.tts.qwen.directory)
+        "${package.engines}/qwen.py"
+        "--model"
+        cfg.tts.qwen.modelDirectory
+        "--port"
+        enginePort
+      ];
+      environment = cuda;
+      vram = cfg.tts.qwen.requiredVram;
+    };
+  }
+  // lib.optionalAttrs (cfg.tts.irodori != null) {
+    irodori = {
+      inherit (cfg.tts.irodori) directory;
+      command = [
+        (python cfg.tts.irodori.directory)
+        "${package.engines}/irodori.py"
+        "--checkpoint"
+        cfg.tts.irodori.checkpoint
+        "--port"
+        enginePort
+      ];
+      environment = cuda // {
+        PYTHONPATH = cfg.tts.irodori.directory;
+      };
+      vram = cfg.tts.irodori.requiredVram;
+    };
+  };
+  # 路由只保留已配置的模型，没装 Qwen 或 Irodori 的主机不会在启动时报错。
+  routes = lib.mapAttrs (_: lib.filterAttrs (_: name: engines ? ${name})) cfg.tts.routes;
+  gateConfig = pkgs.writeText "model-gate.json" (
+    builtins.toJSON {
+      inherit engines routes;
+      enginePort = cfg.tts.enginePort;
+      vramWait = 30;
+      voice = {
+        path = cfg.tts.voice;
+        text = cfg.tts.voiceText;
+      };
+    }
+  );
   comfyCondition.ConditionPathIsDirectory = "${cfg.comfyui.directory}/ComfyUI";
   ttsCondition.ConditionPathIsDirectory = cfg.tts.directory;
 in
@@ -47,7 +119,7 @@ in
     };
     idleTime = mkOption {
       type = types.str;
-      default = "15min";
+      default = "30min";
       description = "Idle time after which a service exits and returns its VRAM.";
     };
     comfyui = {
@@ -64,7 +136,7 @@ in
       modelDirectory = mkOption { type = types.str; };
       voice = mkOption {
         type = types.str;
-        description = "Default reference audio.";
+        description = "Fixed reference audio, read on the model host.";
       };
       voiceText = mkOption {
         type = types.str;
@@ -73,10 +145,69 @@ in
       # 刻意避开 tailnet-https 的 8000-8199：那段回环端口会被自动暴露，TTS 只走 ssh。
       frontPort = port 8290;
       backendPort = port 8291;
+      enginePort = port 8292;
       requiredVram = mkOption {
         type = types.ints.positive;
         default = 9000;
-        description = "Free MiB needed to start; the eager path peaked at 8320.";
+        description = "Free MiB Breeze needs to start; the eager path peaked at 8320.";
+      };
+      qwen = mkOption {
+        default = null;
+        description = "Qwen3-TTS Base; null leaves its routes out.";
+        type = types.nullOr (
+          types.submodule {
+            options = {
+              directory = mkOption {
+                type = types.str;
+                description = "Directory whose .venv holds qwen_tts.";
+              };
+              modelDirectory = mkOption { type = types.str; };
+              requiredVram = mkOption {
+                type = types.ints.positive;
+                default = 6000;
+                description = "Free MiB needed to start; cloning peaked at 4487.";
+              };
+            };
+          }
+        );
+      };
+      irodori = mkOption {
+        default = null;
+        description = "Irodori-TTS; null leaves its routes out.";
+        type = types.nullOr (
+          types.submodule {
+            options = {
+              directory = mkOption {
+                type = types.str;
+                description = "Irodori-TTS checkout whose .venv holds the runtime.";
+              };
+              checkpoint = mkOption {
+                type = types.str;
+                default = "Aratako/Irodori-TTS-v4.1-Small";
+              };
+              requiredVram = mkOption {
+                type = types.ints.positive;
+                default = 6000;
+              };
+            };
+          }
+        );
+      };
+      routes = mkOption {
+        type = types.attrsOf (types.attrsOf types.str);
+        default = {
+          anki = {
+            en = "breeze";
+            zh = "breeze";
+            ja = "irodori";
+          };
+          video = {
+            en = "qwen";
+            zh = "qwen";
+            ja = "qwen";
+          };
+        };
+        description = "Engine for each use and language.";
       };
     };
   };
@@ -131,7 +262,7 @@ in
 
     systemd.user.sockets.tts = {
       Unit = {
-        Description = "Socket that starts Breeze-TTS-2 on the first request";
+        Description = "Socket that starts the speech gate on the first request";
         X-SwitchMethod = "keep-old";
       }
       // ttsCondition;
@@ -140,7 +271,7 @@ in
     };
     systemd.user.services.tts = {
       Unit = {
-        Description = "Front for the on-demand Breeze-TTS-2 backend";
+        Description = "Front for the on-demand speech gate";
         Requires = [
           "tts.socket"
           "tts-backend.service"
@@ -156,7 +287,7 @@ in
     };
     systemd.user.services.tts-backend = {
       Unit = {
-        Description = "Breeze-TTS-2 synthesis server";
+        Description = "Speech gate that runs one model at a time";
         StopWhenUnneeded = true;
         X-SwitchMethod = "keep-old";
       }
@@ -165,14 +296,11 @@ in
         Type = "simple";
         WorkingDirectory = cfg.tts.directory;
         Environment = [
-          "PATH=${lib.makeBinPath [ pkgs.sox ]}:/run/current-system/sw/bin"
+          "PATH=/run/current-system/sw/bin"
           "PORT=${toString cfg.tts.backendPort}"
-          "LD_LIBRARY_PATH=${cfg.cudaLibraryPath}"
-          "HF_HUB_OFFLINE=1"
-          "TOKENIZERS_PARALLELISM=false"
+          "GATE_CONFIG=${gateConfig}"
         ];
-        ExecStartPre = "${lib.getExe' package.service.vram "model-vram"} ${toString cfg.tts.requiredVram} 30";
-        ExecStart = "${cfg.tts.directory}/.venv/bin/python -m breeze_infer.api ${cfg.tts.modelDirectory} --host 127.0.0.1 --port ${toString cfg.tts.backendPort}";
+        ExecStart = lib.getExe' package.service.gate "model-gate";
         ExecStartPost = lib.getExe' package.service.wait "model-wait";
         TimeoutStartSec = 300;
         TimeoutStopSec = 30;

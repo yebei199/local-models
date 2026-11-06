@@ -1,4 +1,4 @@
-// Start ComfyUI from its external environment, and gate model services on port and VRAM state.
+// Start ComfyUI from its external environment, and gate services on port and VRAM state.
 import { join } from 'node:path';
 
 /** The clock and probe seams bound cold-start waiting without slowing local contract tests. */
@@ -80,7 +80,7 @@ function freeVram(): number {
 
 /** Refuse to start beside a job holding the card, but give a finished one time to let go:
  * ComfyUI's /free answers seconds before the weights actually leave. */
-async function requireVram(needed: number, seconds: number): Promise<void> {
+export async function requireVram(needed: number, seconds: number): Promise<void> {
   let free = freeVram();
   for (let waited = 0; free < needed && waited < seconds; waited++) {
     await Bun.sleep(1000);
