@@ -55,8 +55,11 @@ async function start(dir: string, free = '12000') {
   const script = join(dir, 'engine.ts');
   writeFileSync(script, ENGINE);
   const bin = fakeTool(dir, 'nvidia-smi', `console.log(${JSON.stringify(free)});`);
-  const voice = join(dir, 'voice.wav');
-  writeFileSync(voice, 'fixed-audio');
+  const voice = (language: string) => {
+    const path = join(dir, `${language}.wav`);
+    writeFileSync(path, `${language}-audio`);
+    return { path, text: `${language} words` };
+  };
   const engine = (name: string) => ({
     command: [process.execPath, script, name, String(enginePort), log],
     directory: dir,
@@ -69,7 +72,7 @@ async function start(dir: string, free = '12000') {
     JSON.stringify({
       enginePort,
       vramWait: 0,
-      voice: { path: voice, text: 'fixed words' },
+      voices: { en: voice('en'), ja: voice('ja') },
       routes: { anki: { en: 'one', ja: 'two' } },
       engines: { one: engine('one'), two: engine('two') },
     }),
@@ -98,12 +101,30 @@ async function start(dir: string, free = '12000') {
 
 const lines = (path: string) => readFileSync(path, 'utf8').trim().split('\n');
 
-test('the route picks the engine and the fixed voice is filled in', async () => {
+test('the route picks the engine and the language picks the fixed voice', async () => {
   const { speak } = await start(scratch());
   const response = await speak('hi', 'ja');
   expect(response.status).toBe(200);
   expect(response.headers.get('X-Sample-Rate')).toBe('24000');
-  expect(await response.text()).toBe('two|ja|fixed words|fixed-audio');
+  expect(await response.text()).toBe('two|ja|ja words|ja-audio');
+  expect(await (await speak('hi', 'en')).text()).toBe('one|en|en words|en-audio');
+});
+
+test('a route without a voice for its language stops the gate at start', async () => {
+  const dir = scratch();
+  const config = join(dir, 'gate.json');
+  const engine = { command: ['true'], directory: dir, environment: {}, vram: 1 };
+  writeFileSync(
+    config,
+    JSON.stringify({ voices: {}, routes: { anki: { en: 'one' } }, engines: { one: engine } }),
+  );
+  const gate = Bun.spawn([process.execPath, resolve('src/gate.ts')], {
+    env: { ...process.env, PORT: String(await freePort()), GATE_CONFIG: config },
+    stdout: 'ignore',
+    stderr: 'ignore',
+  });
+  children.push(gate);
+  expect(await gate.exited).not.toBe(0);
 });
 
 test('a caller voice replaces the fixed one', async () => {

@@ -4,6 +4,8 @@
      models: [{ id, name, video, langs }], sentences: { lang: [text] },
      voices: [{ id, name, lang, refLang, featured, source, ref, refText }],
      clips: [{ id, item, model, voice, sentence, seconds, file }], decided: { lang: item } }.
+     blind.js sets window.BLIND = [{ id, lang, kind, text, samples: [{ letter, file, model }] }]:
+     anonymous, loudness-matched clips whose models stay hidden until every trial is answered.
      A clip is one model reading one sentence in one reference voice; an item is the model and
      voice pair, which is what a decision names. -->
 <html lang="zh">
@@ -264,6 +266,50 @@
       flex: 1 1 320px;
       text-align: left;
     }
+    body.blind header > :not(h1, #mode),
+    body.blind #keys {
+      display: none;
+    }
+    .tasks {
+      display: grid;
+      gap: 12px;
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    .task {
+      padding: 12px 16px 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+    }
+    .task h2 {
+      margin: 0;
+      font-size: 16px;
+    }
+    .task p {
+      margin: 2px 0 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .option {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 64px 64px;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .nav {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 12px;
+    }
+    .answer {
+      padding: 12px 16px;
+      border: 1px solid var(--mark);
+      border-radius: 8px;
+      background: var(--tint);
+      user-select: all;
+    }
     .empty {
       padding: 40px 20px;
       text-align: center;
@@ -274,6 +320,7 @@
   <body>
     <header>
       <h1>音色对比</h1>
+      <button type="button" id="mode"></button>
       <div class="group" id="langs">
         <button type="button" data-lang="ja">日语</button>
         <button type="button" data-lang="en">英语</button>
@@ -314,6 +361,7 @@
     </footer>
 
     <script src="manifest.js"></script>
+    <script src="blind.js"></script>
     <script>
     const storageKey = 'audition-picks';
     const languages = { ja: '日语', en: '英语', zh: '中文' };
@@ -324,13 +372,21 @@
       clips: [],
       decided: {},
     };
+    const trials = window.BLIND ?? [];
     const stored = JSON.parse(localStorage.getItem(storageKey) ?? '{}');
     const picks = {
       final: { ...data.decided, ...stored.final },
       scores: stored.scores ?? {},
       hidden: stored.hidden ?? [],
+      blind: stored.blind ?? {},
     };
-    const view = { lang: 'ja', sentence: 0, scope: 'featured' };
+    const view = {
+      lang: 'ja',
+      sentence: 0,
+      scope: 'featured',
+      blind: trials.length > 0,
+      trial: 0,
+    };
     const clips = new Map(data.clips.map((clip) => [clip.id, clip]));
     const main = document.querySelector('main');
     const audio = document.createElement('audio');
@@ -361,6 +417,7 @@
 
     const modelName = (id) => data.models.find((model) => model.id === id)?.name ?? id;
     const voiceName = (id) => data.voices.find((voice) => voice.id === id)?.name ?? id;
+    const voiceById = (id) => data.voices.find((voice) => voice.id === id);
     const clipAt = (model, voice) => clips.get(`${model}/${voice}/${view.sentence}`);
 
     function visibleModels() {
@@ -380,7 +437,7 @@
         id: clip.id,
         file: clip.file,
         label: `${modelName(clip.model)} · ${voiceName(clip.voice)}`,
-        text: data.sentences[view.lang][clip.sentence],
+        text: data.sentences[voiceById(clip.voice).lang][clip.sentence],
       };
     }
 
@@ -557,6 +614,112 @@
       return node;
     }
 
+    const answered = (trial) => Boolean(picks.blind[trial.id]?.[0] && picks.blind[trial.id]?.[1]);
+    const sampleOf = (trial, letter) => trial.samples.find((sample) => sample.letter === letter);
+
+    /** One sample cannot hold both ranks, so taking a rank frees it from the other. */
+    function rank(trial, letter, place) {
+      const pick = [...(picks.blind[trial.id] ?? [])];
+      pick[place] = pick[place] === letter ? null : letter;
+      if (pick[1 - place] === pick[place]) pick[1 - place] = null;
+      picks.blind[trial.id] = pick;
+      save();
+      render();
+    }
+
+    function rankButton(trial, sample, place) {
+      const chosen = picks.blind[trial.id]?.[place] === sample.letter;
+      const node = button(['第一', '第二'][place], '', () => rank(trial, sample.letter, place));
+      node.setAttribute('aria-pressed', String(chosen));
+      return node;
+    }
+
+    function blindSample(trial, sample) {
+      const entry = {
+        id: `blind/${trial.id}/${sample.letter}`,
+        file: sample.file,
+        label: `第 ${view.trial + 1} 题 · 样本 ${sample.letter}`,
+        text: trial.text,
+      };
+      const play = button('', 'play', () => toggle(entry));
+      play.dataset.entry = entry.id;
+      play.append(element('span', `▶ 样本 ${sample.letter}`));
+      const row = element('div', '', 'option');
+      row.append(play, rankButton(trial, sample, 0), rankButton(trial, sample, 1));
+      return row;
+    }
+
+    function step(delta) {
+      view.trial += delta;
+      render();
+    }
+
+    function trialView(trial) {
+      const node = element('section', '', 'task');
+      const title = `第 ${view.trial + 1} / ${trials.length} 题 · ${languages[trial.lang]} · ${trial.kind}`;
+      const text = element('p', trial.text);
+      text.lang = trial.lang;
+      node.append(element('h2', title), text);
+      node.append(...trial.samples.map((sample) => blindSample(trial, sample)));
+      const nav = element('div', '', 'nav');
+      const back = button('上一题', '', () => step(-1));
+      back.disabled = view.trial === 0;
+      const last = view.trial === trials.length - 1;
+      const next = button(last ? '看结果' : '下一题', '', () => step(1));
+      next.disabled = !answered(trial);
+      nav.append(back, next);
+      node.append(nav);
+      return node;
+    }
+
+    /** Breeze cannot publish, so a video pick is the best sample that may legally be used. */
+    function videoPick(trial) {
+      const models = picks.blind[trial.id].map((letter) => sampleOf(trial, letter).model);
+      return models.find((model) => model !== 'Breeze');
+    }
+
+    function languageResult(lang) {
+      const group = trials.filter((trial) => trial.lang === lang);
+      const names = [...new Set(group.flatMap((trial) => trial.samples.map((x) => x.model)))];
+      const rows = names.map((name) => {
+        const count = (place) =>
+          group.filter((t) => sampleOf(t, picks.blind[t.id][place]).model === name).length;
+        const video = group.filter((trial) => videoPick(trial) === name).length;
+        return { name, first: count(0), second: count(1), video };
+      });
+      rows.sort((a, b) => b.first * 2 + b.second - (a.first * 2 + a.second));
+      return rows.map(
+        (row) => `${row.name} 第一 ${row.first} 第二 ${row.second} 视频 ${row.video}`,
+      );
+    }
+
+    /** The detail is pasted back, because picks live only in this browser. */
+    function resultView() {
+      const node = element('div', '', 'tasks');
+      const lines = [];
+      for (const [lang, label] of Object.entries(languages)) {
+        const rows = languageResult(lang);
+        const section = element('section', '', 'task');
+        section.append(element('h2', label), ...rows.map((row) => element('p', row)));
+        node.append(section);
+        lines.push(`${label}：${rows.join('，')}`);
+      }
+      const detail = trials.map((trial) => {
+        const [first, second] = picks.blind[trial.id].map((x) => sampleOf(trial, x).model);
+        return `${trial.id} ${trial.kind} ${first}>${second}`;
+      });
+      const back = button('返回修改', '', () => step(-1));
+      node.append(back, element('div', [...lines, ...detail].join('；'), 'answer'));
+      return node;
+    }
+
+    function blindView() {
+      if (view.trial >= trials.length) return resultView();
+      const node = element('div', '', 'tasks');
+      node.append(trialView(trials[view.trial]));
+      return node;
+    }
+
     function modelToggles() {
       const nodes = data.models
         .filter((model) => model.langs.includes(view.lang))
@@ -601,6 +764,12 @@
       document.querySelector('#decisions').replaceChildren(...nodes);
     }
 
+    function content() {
+      if (view.blind) return blindView();
+      if (data.clips.length) return table();
+      return element('p', '没有试听数据，请先在模型主机上运行 build.py。', 'empty');
+    }
+
     /** Redraw everything; focus is restored because keyboard scoring must not lose its place. */
     function render(focus) {
       for (const node of document.querySelectorAll('[data-lang]'))
@@ -609,11 +778,10 @@
       sentenceTabs();
       decisions();
       const scroll = [main.scrollLeft, main.scrollTop];
-      main.replaceChildren(
-        data.clips.length
-          ? table()
-          : element('p', '没有试听数据，请先在模型主机上运行 build.py。', 'empty'),
-      );
+      document.body.classList.toggle('blind', view.blind);
+      document.querySelector('#mode').hidden = trials.length === 0;
+      document.querySelector('#mode').textContent = view.blind ? '打开完整表格' : '回到盲听';
+      main.replaceChildren(content());
       [main.scrollLeft, main.scrollTop] = scroll;
       if (focus) document.querySelector(`[data-clip="${focus}"]`)?.focus();
       showPlaying();
@@ -696,6 +864,12 @@
         render();
       });
 
+    document.querySelector('#mode').addEventListener('click', () => {
+      view.blind = !view.blind;
+      main.scrollTop = 0;
+      render();
+    });
+
     document.querySelector('#scope').addEventListener('change', (event) => {
       view.scope = event.target.value;
       render();
@@ -719,7 +893,7 @@
 
     document.querySelector('#export').addEventListener('click', () => {
       const link = element('a');
-      const result = { final: picks.final, scores: picks.scores };
+      const result = { final: picks.final, scores: picks.scores, blind: picks.blind };
       link.href = URL.createObjectURL(
         new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }),
       );
@@ -728,6 +902,11 @@
       URL.revokeObjectURL(link.href);
     });
 
+    view.trial = Math.max(
+      0,
+      trials.findIndex((trial) => !answered(trial)),
+    );
+    if (trials.length && trials.every(answered)) view.trial = trials.length;
     render();
     </script>
   </body>

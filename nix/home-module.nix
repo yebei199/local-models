@@ -88,18 +88,32 @@ let
       };
       vram = cfg.tts.irodori.requiredVram;
     };
+  }
+  // lib.optionalAttrs (cfg.tts.ming != null) {
+    ming = {
+      inherit (cfg.tts.ming) directory;
+      command = [
+        (python cfg.tts.ming.directory)
+        "${package.engines}/ming.py"
+        "--model"
+        cfg.tts.ming.modelDirectory
+        "--port"
+        enginePort
+      ];
+      environment = cuda // {
+        PYTHONPATH = cfg.tts.ming.directory;
+      };
+      vram = cfg.tts.ming.requiredVram;
+    };
   };
-  # 路由只保留已配置的模型，没装 Qwen 或 Irodori 的主机不会在启动时报错。
+  # 路由只保留已配置的模型，没装 Qwen、Irodori 或 Ming 的主机不会在启动时报错。
   routes = lib.mapAttrs (_: lib.filterAttrs (_: name: engines ? ${name})) cfg.tts.routes;
   gateConfig = pkgs.writeText "model-gate.json" (
     builtins.toJSON {
       inherit engines routes;
       enginePort = cfg.tts.enginePort;
       vramWait = 30;
-      voice = {
-        path = cfg.tts.voice;
-        text = cfg.tts.voiceText;
-      };
+      inherit (cfg.tts) voices;
     }
   );
   comfyCondition.ConditionPathIsDirectory = "${cfg.comfyui.directory}/ComfyUI";
@@ -134,13 +148,19 @@ in
         description = "breeze-tts checkout whose .venv holds the service.";
       };
       modelDirectory = mkOption { type = types.str; };
-      voice = mkOption {
-        type = types.str;
-        description = "Fixed reference audio, read on the model host.";
-      };
-      voiceText = mkOption {
-        type = types.str;
-        description = "Exact transcript of the reference audio.";
+      voices = mkOption {
+        description = "Fixed reference per language, read on the model host.";
+        type = types.attrsOf (
+          types.submodule {
+            options = {
+              path = mkOption { type = types.str; };
+              text = mkOption {
+                type = types.str;
+                description = "Exact transcript of the reference audio.";
+              };
+            };
+          }
+        );
       };
       # 刻意避开 tailnet-https 的 8000-8199：那段回环端口会被自动暴露，TTS 只走 ssh。
       frontPort = port 8290;
@@ -193,6 +213,26 @@ in
           }
         );
       };
+      ming = mkOption {
+        default = null;
+        description = "Ming-3.0-tts; null leaves its routes out.";
+        type = types.nullOr (
+          types.submodule {
+            options = {
+              directory = mkOption {
+                type = types.str;
+                description = "Ming checkout whose .venv holds the runtime.";
+              };
+              modelDirectory = mkOption { type = types.str; };
+              requiredVram = mkOption {
+                type = types.ints.positive;
+                default = 4500;
+                description = "Free MiB needed to start; cloning peaked at 2963.";
+              };
+            };
+          }
+        );
+      };
       routes = mkOption {
         type = types.attrsOf (types.attrsOf types.str);
         default = {
@@ -202,9 +242,9 @@ in
             ja = "irodori";
           };
           video = {
-            en = "qwen";
-            zh = "qwen";
-            ja = "qwen";
+            en = "ming";
+            zh = "ming";
+            ja = "ming";
           };
         };
         description = "Engine for each use and language.";

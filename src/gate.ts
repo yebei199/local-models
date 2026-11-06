@@ -19,7 +19,8 @@ interface Config {
   enginePort: number;
   /** Seconds a finished job gets to release the card before a start is refused. */
   vramWait: number;
-  voice: { path: string; text: string };
+  /** Reference per language: a clone reads best from a reference in its own language. */
+  voices: Record<string, { path: string; text: string }>;
   routes: Record<string, Record<string, string>>;
   engines: Record<string, Engine>;
 }
@@ -37,15 +38,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-/** A route naming a missing engine is a deployment mistake, so it fails at start, not mid-batch. */
+/** A route naming a missing engine or voice is a deployment mistake, so it fails at start, not mid-batch. */
 function loadConfig(path: string): Config {
   const value: unknown = JSON.parse(readFileSync(path, 'utf8'));
   if (!isRecord(value) || !isRecord(value.routes) || !isRecord(value.engines))
     throw new Error('gate: config needs routes and engines');
+  if (!isRecord(value.voices)) throw new Error('gate: config needs voices');
   const config = value as unknown as Config;
   for (const routes of Object.values(config.routes))
-    for (const engine of Object.values(routes))
+    for (const [language, engine] of Object.entries(routes)) {
       if (!config.engines[engine]) throw new Error(`gate: route names unknown engine ${engine}`);
+      if (!config.voices[language]) throw new Error(`gate: no voice for language ${language}`);
+    }
   return config;
 }
 
@@ -72,7 +76,7 @@ async function ready(port: number, process: Bun.Subprocess): Promise<void> {
   throw new Error('engine did not start in time');
 }
 
-/** The form an engine sees: the caller's voice if it sent one, otherwise the fixed voice. */
+/** The form an engine sees: the caller's voice if it sent one, otherwise the language's voice. */
 function engineForm(request: Incoming, config: Config, language: string): FormData {
   const body = new FormData();
   body.append('text', String(request.get('text')));
@@ -83,11 +87,12 @@ function engineForm(request: Incoming, config: Config, language: string): FormDa
   }
   const audio = request.get('ref_audio');
   const custom = audio instanceof File;
-  body.append('ref_text', custom ? String(request.get('ref_text')) : config.voice.text);
+  const voice = config.voices[language] as Config['voices'][string];
+  body.append('ref_text', custom ? String(request.get('ref_text')) : voice.text);
   body.append(
     'ref_audio',
-    custom ? audio : new Blob([readFileSync(config.voice.path)], { type: 'audio/wav' }),
-    custom ? audio.name : basename(config.voice.path),
+    custom ? audio : new Blob([readFileSync(voice.path)], { type: 'audio/wav' }),
+    custom ? audio.name : basename(voice.path),
   );
   return body;
 }

@@ -18,9 +18,9 @@
 | 用途 | 英语 | 中文 | 日语 |
 |---|---|---|---|
 | `anki` | Breeze | Breeze | Irodori |
-| `video` | Qwen3-TTS | Qwen3-TTS | Qwen3-TTS |
+| `video` | Ming | Ming | Ming |
 
-音色默认用 `tts.voice`。`tts synth` 可加 `--voice WAV --voice-text 文字稿`（两个必须同时给，文字稿要与
+音色默认用 `tts.voices` 里该语言的参考。`tts synth` 可加 `--voice WAV --voice-text 文字稿`（两个必须同时给，文字稿要与
 音频一字不差）临时替换，也可加 `--instruction`、`--seed`。选型结论见 [docs/tts-models.md](docs/tts-models.md)。
 
 ## 服务
@@ -52,7 +52,7 @@ hf download BreezeBlue/Breeze-TTS-2 --local-dir ~/projects/breeze-tts-2
 
 测试过的上游提交是 `daa6cb2`。
 
-Qwen3-TTS 和 Irodori 可选，配置后才有 `video` 和日语路由：
+Ming、Irodori 和 Qwen3-TTS 可选。Ming 提供 `video` 路由，Irodori 提供日语路由，Qwen 只在 `routes` 指向它时使用：
 
 ```bash
 uv venv -p 3.12 ~/projects/qwen3-tts/.venv
@@ -79,8 +79,17 @@ services.local-models = {
   tts = {
     directory = "/home/me/projects/breeze-tts";
     modelDirectory = "/home/me/projects/breeze-tts-2";
-    voice = "/home/me/voices/voice.wav";
-    voiceText = "参考音频的准确文字稿";
+    voices = {
+      en = {
+        path = "/home/me/voices/en.wav";
+        text = "参考音频的准确文字稿";
+      };
+      # zh、ja 同样写，每种语言一条同语言参考
+    };
+    ming = {
+      directory = "/home/me/projects/ming";
+      modelDirectory = "/home/me/projects/ming/weights";
+    };
     qwen = {
       directory = "/home/me/projects/qwen3-tts";
       modelDirectory = "/home/me/projects/qwen3-tts/weights/1.7B-Base";

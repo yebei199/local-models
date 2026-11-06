@@ -34,7 +34,7 @@
 tts ── ssh -L unix socket ──────► tts.socket 127.0.0.1:8290
                                     └ tts.service（socket-proxyd）
                                         └ tts-backend.service :8291（model-gate）
-                                            └ 当前模型 :8292（Breeze、Qwen 或 Irodori）
+                                            └ 当前模型 :8292（Breeze、Ming、Irodori 或 Qwen）
 
 scene-image/video ── HTTP(S) ───► comfyui.socket 127.0.0.1:8088
   │                                 └ comfyui.service（socket-proxyd）
@@ -49,8 +49,8 @@ scene-narrate、scene-show         在调用方本机运行，只用 ffmpeg 和 
 - model-gate 按 `use` 和 `language` 选模型，串行处理请求；换模型时先停旧的，查过显存再启动新的。
   网关退出时带走模型，所以空闲回收和 `scene-*` 的避让都只需要停 `tts-backend.service`。
 - 所有模型都讲 Breeze 的协议：multipart 的 `text`、`ref_text`、`ref_audio`，返回裸 PCM 和
-  `X-Sample-Rate`。`engines/` 把 Qwen 和 Irodori 包成这个协议，网关才不用区分模型。
-- 固定音色在模型主机上，由网关补进请求，调用方不必携带音频。
+  `X-Sample-Rate`。`engines/` 把 Qwen、Irodori 和 Ming 包成这个协议，网关才不用区分模型。
+- 固定音色在模型主机上，每种语言一条同语言参考，由网关按 `language` 补进请求，调用方不必携带音频。
 - TTS 只绑回环，远程必须走 ssh 转发。ComfyUI 不走 ssh：客户端访问 `COMFYUI_URL`，backend 额外
   监听 Tailscale 地址，取不到地址时退回只绑回环。
 - `isLocal(host)` 决定走本机还是 ssh：空字符串和模型主机自己的主机名都算本机。
@@ -65,7 +65,7 @@ nix/
   checks.nix            nix flake check 的门禁：format、lint、types、test
 engines/
   common.py             Breeze 协议的 HTTP 服务，只用标准库和 numpy
-  qwen.py、irodori.py   各模型的加载和合成，跑在模型自己的 .venv 里
+  qwen.py、irodori.py、ming.py  各模型的加载和合成，跑在模型自己的 .venv 里
 skills/
   local-models/SKILL.md 给 AI 用的命令说明，由 Home Manager 模块安装；改命令或路由时同步更新
 docs/
