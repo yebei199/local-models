@@ -5,14 +5,15 @@
 
 | 命令 | 作用 |
 |---|---|
-| `tts synth --text T --output F [--lang L] [--use U]` | 合成一句，写 WAV |
+| `tts synth --text T --output F --lang L [--use U]` | 合成一句，写 WAV |
 | `tts batch --batch-file F` | JSONL 批量合成，每行 `{"text","output","lang","use"}`，路径相对清单文件 |
 | `scene-image SCENE -o F` | ComfyUI 生图 |
 | `scene-video SCENE -o F [--image FRAME]` | ComfyUI 生视频 |
 | `scene-narrate VIDEO SENTENCE WORD OUT` | 给视频配「整句 → 半秒 → 单词」旁白 |
 | `scene-show FILE`、`scene-show --clear` | 开窗口看产物、关掉这些窗口 |
 
-`--lang` 是 `en`（默认）、`ja`、`zh`，`--use` 是 `anki`（默认）或 `video`，两者决定用哪个模型：
+`--lang` 必填，取 `en`、`ja`、`zh`；`--use` 是 `anki`（默认）或 `video`，两者决定用哪个模型。语言不自动
+检测：`学校` 这样的短词无法判断，猜错不会报错，只会读错：
 
 | 用途 | 英语 | 中文 | 日语 |
 |---|---|---|---|

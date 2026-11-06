@@ -133,6 +133,7 @@ flake 只看 git 已跟踪的文件，新文件要先 `git add` 才进 `nix flak
 - `package.nix` 的 `NO_PROXY` 不能删：bun 的 fetch 会走代理变量，回环请求经代理会得到 502。
 - 模型环境要有 `TRITON_LIBCUDA_PATH`：NixOS 没有 `/sbin/ldconfig`，Qwen 首次合成会失败。
 - 声音必须同时有音频和逐字一致的文字稿，只给一个是错误。
+- `--lang` 必填且不做自动检测：短词无法判断语言，猜错不报错，只会生成读错的音频。
 - 视频帧数必须满足 `17k+5` 且不超过 209，这是 H3 解码的限制。
 - seed 是任意精度整数，经 `JSON.rawJSON` 发送，不要转成 `Number`。
 

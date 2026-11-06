@@ -65,7 +65,7 @@ test('synth wraps streamed PCM in a playable WAV and leaves the voice to the gat
   const output = join(dir, 'out.wav');
   const result = await run(
     'tts',
-    ['synth', '--text', 'hello', '--output', output],
+    ['synth', '--lang', 'en', '--text', 'hello', '--output', output],
     environment(port),
   );
   expect(result).toMatchObject({ status: 0 });
@@ -98,7 +98,18 @@ test('an explicit voice is sent along with instruction and seed', async () => {
   const args = ['--voice', voice, '--voice-text', 'other words', '--seed', '7'];
   const result = await run(
     'tts',
-    ['synth', '--text', 'x', '--output', join(dir, 'o.wav'), ...args, '--instruction', 'softly'],
+    [
+      'synth',
+      '--lang',
+      'en',
+      '--text',
+      'x',
+      '--output',
+      join(dir, 'o.wav'),
+      ...args,
+      '--instruction',
+      'softly',
+    ],
     environment(port),
   );
   expect(result.status).toBe(0);
@@ -115,7 +126,17 @@ test('a voice without its transcript is rejected before any request', async () =
   const { port, seen } = breeze();
   const result = await run(
     'tts',
-    ['synth', '--text', 'x', '--output', join(dir, 'o.wav'), '--voice', join(dir, 'v.wav')],
+    [
+      'synth',
+      '--lang',
+      'en',
+      '--text',
+      'x',
+      '--output',
+      join(dir, 'o.wav'),
+      '--voice',
+      join(dir, 'v.wav'),
+    ],
     environment(port),
   );
   expect(result.status).toBe(1);
@@ -134,6 +155,9 @@ test('use and lang choose the route, and a bad one stops before any request', as
   const bad = await run('tts', [...args, '--lang', 'fr'], environment(port));
   expect(bad.status).toBe(1);
   expect(bad.stderr).toContain('lang');
+  const missing = await run('tts', args, environment(port));
+  expect(missing.status).toBe(1);
+  expect(missing.stderr).toContain('lang is required');
   expect(seen).toHaveLength(1);
 });
 
@@ -141,7 +165,11 @@ test('a service error fails the command and leaves no output file', async () => 
   const dir = scratch();
   const { port } = breeze([500]);
   const output = join(dir, 'o.wav');
-  const result = await run('tts', ['synth', '--text', 'x', '--output', output], environment(port));
+  const result = await run(
+    'tts',
+    ['synth', '--lang', 'en', '--text', 'x', '--output', output],
+    environment(port),
+  );
   expect(result.status).toBe(1);
   expect(result.stderr).toContain('500');
   expect(existsSync(output)).toBe(false);
@@ -153,7 +181,7 @@ test('batch writes every row relative to the manifest', async () => {
   const manifest = join(dir, 'tasks.jsonl');
   writeFileSync(
     manifest,
-    `${JSON.stringify({ text: 'one', output: 'a.wav' })}\n\n${JSON.stringify({ text: 'two', output: 'b.wav' })}\n`,
+    `${JSON.stringify({ text: 'one', output: 'a.wav', lang: 'en' })}\n\n${JSON.stringify({ text: 'two', output: 'b.wav', lang: 'en' })}\n`,
   );
   const result = await run('tts', ['batch', '--batch-file', manifest], environment(port));
   expect(result.status).toBe(0);
@@ -181,7 +209,10 @@ test('a bad batch row stops the run before the first synthesis', async () => {
   const dir = scratch();
   const { port, seen } = breeze();
   const manifest = join(dir, 'tasks.jsonl');
-  writeFileSync(manifest, `${JSON.stringify({ text: 'one', output: 'a.wav' })}\n{"text":"x"}\n`);
+  writeFileSync(
+    manifest,
+    `${JSON.stringify({ text: 'one', output: 'a.wav', lang: 'en' })}\n{"text":"x"}\n`,
+  );
   const result = await run('tts', ['batch', '--batch-file', manifest], environment(port));
   expect(result.status).toBe(1);
   expect(seen).toEqual([]);
@@ -211,7 +242,7 @@ test('a remote host is reached through an ssh forward that is removed afterwards
   const log = join(dir, 'ssh.log');
   const bin = fakeTool(dir, 'ssh', RELAY);
   const output = join(dir, 'o.wav');
-  const result = await run('tts', ['synth', '--text', 'far', '--output', output], {
+  const result = await run('tts', ['synth', '--lang', 'en', '--text', 'far', '--output', output], {
     ...environment(port),
     TTS_HOST: 'model-host',
     SSH_LOG: log,
@@ -227,11 +258,15 @@ test('a remote host is reached through an ssh forward that is removed afterwards
 test('an unreachable host fails with a named error', async () => {
   const dir = scratch();
   const bin = fakeTool(dir, 'ssh', 'process.exit(255);');
-  const result = await run('tts', ['synth', '--text', 'x', '--output', join(dir, 'o.wav')], {
-    ...environment('1'),
-    TTS_HOST: 'model-host',
-    PATH: `${bin}:${process.env.PATH}`,
-  });
+  const result = await run(
+    'tts',
+    ['synth', '--lang', 'en', '--text', 'x', '--output', join(dir, 'o.wav')],
+    {
+      ...environment('1'),
+      TTS_HOST: 'model-host',
+      PATH: `${bin}:${process.env.PATH}`,
+    },
+  );
   expect(result.status).toBe(1);
   expect(result.stderr).toContain('model-host');
 });

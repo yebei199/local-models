@@ -112,14 +112,14 @@ function voice(path: string | undefined, text: string | undefined): Voice | unde
   return path && text ? { path, text } : undefined;
 }
 
-/** Reject a bad route before any GPU time; `en` and `anki` keep older callers working. */
+/** The language is required: text cannot reveal it, and a wrong guess reads aloud without error. */
 function route(use: unknown, lang: unknown): { use: string; lang: string } {
-  const resolved = { use: use ?? 'anki', lang: lang ?? 'en' };
-  if (typeof resolved.use !== 'string' || !USES.includes(resolved.use))
+  const resolved = use ?? 'anki';
+  if (typeof resolved !== 'string' || !USES.includes(resolved))
     throw new Error(`tts: use must be one of ${USES.join(', ')}`);
-  if (typeof resolved.lang !== 'string' || !LANGUAGES.includes(resolved.lang))
-    throw new Error(`tts: lang must be one of ${LANGUAGES.join(', ')}`);
-  return { use: resolved.use, lang: resolved.lang };
+  if (typeof lang !== 'string' || !LANGUAGES.includes(lang))
+    throw new Error(`tts: lang is required and must be one of ${LANGUAGES.join(', ')}`);
+  return { use: resolved, lang };
 }
 
 /** `tts synth`: one utterance from flags. */
