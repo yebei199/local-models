@@ -215,6 +215,13 @@ in
   config = lib.mkIf cfg.enable {
     home.packages = [ package ];
 
+    # Codex 跳过本身是软链接的 SKILL.md，只跟随软链接的目录，所以它拿整个目录。
+    home.file = {
+      ".claude/skills/local-models/SKILL.md".source = ../skills/local-models/SKILL.md;
+      ".agents/skills/local-models/SKILL.md".source = ../skills/local-models/SKILL.md;
+      ".codex/skills/local-models".source = ../skills/local-models;
+    };
+
     # socket 也要 keep-old：重启 socket 会经 Requires 带停正在跑的后端。换端口后手动重启 socket 才生效。
     systemd.user.sockets.comfyui = {
       Unit = {

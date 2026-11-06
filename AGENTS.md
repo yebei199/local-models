@@ -66,6 +66,8 @@ nix/
 engines/
   common.py             Breeze 协议的 HTTP 服务，只用标准库和 numpy
   qwen.py、irodori.py   各模型的加载和合成，跑在模型自己的 .venv 里
+skills/
+  local-models/SKILL.md 给 AI 用的命令说明，由 Home Manager 模块安装；改命令或路由时同步更新
 docs/
   tts-models.md         模型试听结论和当前选择
 audition/
