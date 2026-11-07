@@ -55,10 +55,10 @@ async function start(dir: string, free = '12000') {
   const script = join(dir, 'engine.ts');
   writeFileSync(script, ENGINE);
   const bin = fakeTool(dir, 'nvidia-smi', `console.log(${JSON.stringify(free)});`);
-  const voice = (language: string) => {
-    const path = join(dir, `${language}.wav`);
-    writeFileSync(path, `${language}-audio`);
-    return { path, text: `${language} words` };
+  const voice = (name: string) => {
+    const path = join(dir, `${name}.wav`);
+    writeFileSync(path, `${name}-audio`);
+    return { path, text: `${name} words` };
   };
   const engine = (name: string) => ({
     command: [process.execPath, script, name, String(enginePort), log],
@@ -72,8 +72,8 @@ async function start(dir: string, free = '12000') {
     JSON.stringify({
       enginePort,
       vramWait: 0,
-      voices: { en: voice('en'), ja: voice('ja') },
-      routes: { anki: { en: 'one', ja: 'two' } },
+      voices: { anki: { en: voice('en'), ja: voice('ja') }, video: { en: voice('story') } },
+      routes: { anki: { en: 'one', ja: 'two' }, video: { en: 'one' } },
       engines: { one: engine('one'), two: engine('two') },
     }),
   );
@@ -88,10 +88,15 @@ async function start(dir: string, free = '12000') {
     if (up) break;
     await Bun.sleep(50);
   }
-  const speak = (text: string, language: string, extra?: (form: FormData) => void) => {
+  const speak = (
+    text: string,
+    language: string,
+    extra?: (form: FormData) => void,
+    use = 'anki',
+  ) => {
     const body = new FormData();
     body.append('text', text);
-    body.append('use', 'anki');
+    body.append('use', use);
     body.append('language', language);
     extra?.(body);
     return fetch(`http://127.0.0.1:${gatePort}/v1/audio/speech`, { method: 'POST', body });
@@ -110,13 +115,25 @@ test('the route picks the engine and the language picks the fixed voice', async 
   expect(await (await speak('hi', 'en')).text()).toBe('one|en|en words|en-audio');
 });
 
+test('each use has its own fixed voice, so narration and flashcards can sound different', async () => {
+  const { speak } = await start(scratch());
+  expect(await (await speak('hi', 'en', undefined, 'video')).text()).toBe(
+    'one|en|story words|story-audio',
+  );
+  expect(await (await speak('hi', 'en')).text()).toBe('one|en|en words|en-audio');
+});
+
 test('a route without a voice for its language stops the gate at start', async () => {
   const dir = scratch();
   const config = join(dir, 'gate.json');
   const engine = { command: ['true'], directory: dir, environment: {}, vram: 1 };
   writeFileSync(
     config,
-    JSON.stringify({ voices: {}, routes: { anki: { en: 'one' } }, engines: { one: engine } }),
+    JSON.stringify({
+      voices: { anki: {} },
+      routes: { anki: { en: 'one' } },
+      engines: { one: engine },
+    }),
   );
   const gate = Bun.spawn([process.execPath, resolve('src/gate.ts')], {
     env: { ...process.env, PORT: String(await freePort()), GATE_CONFIG: config },

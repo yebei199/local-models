@@ -189,6 +189,23 @@ test('batch writes every row relative to the manifest', async () => {
   expect(existsSync(join(dir, 'a.wav')) && existsSync(join(dir, 'b.wav'))).toBe(true);
 });
 
+test('batch rows carry their own direction and seed', async () => {
+  const dir = scratch();
+  const { port, seen } = breeze();
+  const manifest = join(dir, 'tasks.jsonl');
+  const seed = '123456789012345678901234567890';
+  const row = { text: 'one', output: 'a.wav', lang: 'zh', instruction: 'tell it', seed };
+  writeFileSync(manifest, `${JSON.stringify(row)}\n`);
+  const result = await run('tts', ['batch', '--batch-file', manifest], environment(port));
+  expect(result.status).toBe(0);
+  expect(seen[0]).toMatchObject({ instruction: 'tell it', seed });
+  writeFileSync(manifest, `${JSON.stringify({ ...row, seed: 7 })}\n`);
+  const numeric = await run('tts', ['batch', '--batch-file', manifest], environment(port));
+  expect(numeric.status).toBe(1);
+  expect(numeric.stderr).toContain('must be strings');
+  expect(seen).toHaveLength(1);
+});
+
 test('batch groups rows by the model that serves them, so each loads once', async () => {
   const dir = scratch();
   const { port, seen } = breeze();

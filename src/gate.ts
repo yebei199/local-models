@@ -7,6 +7,12 @@ import { requireVram } from './backend.ts';
 const START_TIMEOUT = 300_000;
 const STOP_TIMEOUT = 30_000;
 
+/** A recording and its exact transcript. */
+interface Voice {
+  path: string;
+  text: string;
+}
+
 /** How to run one model; every engine answers the Breeze speech contract on `enginePort`. */
 interface Engine {
   command: string[];
@@ -19,8 +25,11 @@ interface Config {
   enginePort: number;
   /** Seconds a finished job gets to release the card before a start is refused. */
   vramWait: number;
-  /** Reference per language: a clone reads best from a reference in its own language. */
-  voices: Record<string, { path: string; text: string }>;
+  /**
+   * Reference per use and language. A clone reads best from a reference in its own language, and
+   * it copies the reference's delivery, so narration and flashcards need different recordings.
+   */
+  voices: Record<string, Record<string, Voice>>;
   routes: Record<string, Record<string, string>>;
   engines: Record<string, Engine>;
 }
@@ -45,10 +54,10 @@ function loadConfig(path: string): Config {
     throw new Error('gate: config needs routes and engines');
   if (!isRecord(value.voices)) throw new Error('gate: config needs voices');
   const config = value as unknown as Config;
-  for (const routes of Object.values(config.routes))
+  for (const [use, routes] of Object.entries(config.routes))
     for (const [language, engine] of Object.entries(routes)) {
       if (!config.engines[engine]) throw new Error(`gate: route names unknown engine ${engine}`);
-      if (!config.voices[language]) throw new Error(`gate: no voice for language ${language}`);
+      if (!config.voices[use]?.[language]) throw new Error(`gate: no voice for ${use}/${language}`);
     }
   return config;
 }
@@ -76,8 +85,8 @@ async function ready(port: number, process: Bun.Subprocess): Promise<void> {
   throw new Error('engine did not start in time');
 }
 
-/** The form an engine sees: the caller's voice if it sent one, otherwise the language's voice. */
-function engineForm(request: Incoming, config: Config, language: string): FormData {
+/** The form an engine sees: the caller's voice if it sent one, otherwise the route's voice. */
+function engineForm(request: Incoming, voice: Voice, language: string): FormData {
   const body = new FormData();
   body.append('text', String(request.get('text')));
   body.append('language', language);
@@ -87,7 +96,6 @@ function engineForm(request: Incoming, config: Config, language: string): FormDa
   }
   const audio = request.get('ref_audio');
   const custom = audio instanceof File;
-  const voice = config.voices[language] as Config['voices'][string];
   body.append('ref_text', custom ? String(request.get('ref_text')) : voice.text);
   body.append(
     'ref_audio',
@@ -164,7 +172,8 @@ function gate(config: Config) {
     const name = config.routes[use]?.[language];
     if (!name) return new Response(`no route for ${use}/${language}`, { status: 400 });
     try {
-      return await enqueue(name, engineForm(form, config, language));
+      const voice = config.voices[use]?.[language] as Voice;
+      return await enqueue(name, engineForm(form, voice, language));
     } catch (error) {
       return new Response(String(error), { status: 503 });
     }

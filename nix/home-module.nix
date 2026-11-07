@@ -105,8 +105,30 @@ let
       };
       vram = cfg.tts.ming.requiredVram;
     };
+  }
+  // lib.optionalAttrs (cfg.tts.mingTiny != null) {
+    ming-tiny = {
+      inherit (cfg.tts.mingTiny) directory;
+      command = [
+        (python cfg.tts.mingTiny.directory)
+        "${package.engines}/mingtiny.py"
+        "--model"
+        cfg.tts.mingTiny.modelDirectory
+        "--bits"
+        (toString cfg.tts.mingTiny.bits)
+        "--port"
+        enginePort
+      ];
+      environment = cuda // {
+        # tiny 钉死的 x-transformers 和 0.5B 共用的 .venv 冲突，它独有的包放在前面覆盖。
+        PYTHONPATH = "${cfg.tts.mingTiny.packages}:${cfg.tts.mingTiny.directory}";
+        # 峰值显存是在这个设置下实测的，去掉它 requiredVram 就不再可信。
+        PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True";
+      };
+      vram = cfg.tts.mingTiny.requiredVram;
+    };
   };
-  # 路由只保留已配置的模型，没装 Qwen、Irodori 或 Ming 的主机不会在启动时报错。
+  # 路由只保留已配置的模型，没装 Qwen、Irodori、Ming 或 tiny 的主机不会在启动时报错。
   routes = lib.mapAttrs (_: lib.filterAttrs (_: name: engines ? ${name})) cfg.tts.routes;
   gateConfig = pkgs.writeText "model-gate.json" (
     builtins.toJSON {
@@ -159,17 +181,22 @@ in
       };
       modelDirectory = mkOption { type = types.str; };
       voices = mkOption {
-        description = "Fixed reference per language, read on the model host.";
+        description = ''
+          Fixed reference per use and language, read on the model host. A clone copies
+          the reference's delivery, so narration and flashcards need different recordings.
+        '';
         type = types.attrsOf (
-          types.submodule {
-            options = {
-              path = mkOption { type = types.str; };
-              text = mkOption {
-                type = types.str;
-                description = "Exact transcript of the reference audio.";
+          types.attrsOf (
+            types.submodule {
+              options = {
+                path = mkOption { type = types.str; };
+                text = mkOption {
+                  type = types.str;
+                  description = "Exact transcript of the reference audio.";
+                };
               };
-            };
-          }
+            }
+          )
         );
       };
       # 刻意避开 tailnet-https 的 8000-8199：那段回环端口会被自动暴露，TTS 只走 ssh。
@@ -243,6 +270,38 @@ in
           }
         );
       };
+      mingTiny = mkOption {
+        default = null;
+        description = "Ming-3.0-tts-tiny with quantized experts; null leaves its routes out.";
+        type = types.nullOr (
+          types.submodule {
+            options = {
+              directory = mkOption {
+                type = types.str;
+                description = "Ming checkout whose .venv and ming_tiny package it shares with Ming.";
+              };
+              packages = mkOption {
+                type = types.str;
+                description = "pip --target directory with the tiny-only pins (x-transformers, fla-core).";
+              };
+              modelDirectory = mkOption { type = types.str; };
+              bits = mkOption {
+                type = types.enum [
+                  4
+                  8
+                ];
+                default = 8;
+                description = "Expert weight width; int8 sounds better and still fits 16 GB.";
+              };
+              requiredVram = mkOption {
+                type = types.ints.positive;
+                default = 11500;
+                description = "Free MiB needed to start; int8 peaked at 11.1 GB while loading.";
+              };
+            };
+          }
+        );
+      };
       routes = mkOption {
         type = types.attrsOf (types.attrsOf types.str);
         default = {
@@ -253,7 +312,7 @@ in
           };
           video = {
             en = "ming";
-            zh = "ming";
+            zh = "ming-tiny";
             ja = "ming";
           };
         };

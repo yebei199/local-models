@@ -161,11 +161,15 @@ function batchRow(line: string, base: string): Task {
     lang,
     voice: path,
     voice_text: voiceText,
+    instruction,
+    seed,
   } = row as Record<string, unknown>;
   if (typeof text !== 'string' || typeof output !== 'string' || !text || !output)
     throw new Error(`tts: batch row needs text and output: ${line}`);
-  if (![path, voiceText].every((value) => value === undefined || typeof value === 'string'))
-    throw new Error(`tts: batch voice fields must be strings: ${line}`);
+  // A seed parsed as a JSON number would silently lose digits, so it travels as a string.
+  const optional = [path, voiceText, instruction, seed];
+  if (!optional.every((value) => value === undefined || typeof value === 'string'))
+    throw new Error(`tts: batch voice, instruction and seed fields must be strings: ${line}`);
   return {
     text,
     output: resolve(base, output),
@@ -174,6 +178,8 @@ function batchRow(line: string, base: string): Task {
       typeof path === 'string' ? resolve(base, path) : undefined,
       voiceText as string | undefined,
     ),
+    instruction: instruction as string | undefined,
+    seed: seed as string | undefined,
   };
 }
 

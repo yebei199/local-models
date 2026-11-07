@@ -18,9 +18,9 @@
 | 用途 | 英语 | 中文 | 日语 |
 |---|---|---|---|
 | `anki` | Breeze | Breeze | Irodori |
-| `video` | Ming | Ming | Ming |
+| `video` | Ming | Ming tiny | Ming |
 
-音色默认用 `tts.voices` 里该语言的参考。`tts synth` 可加 `--voice WAV --voice-text 文字稿`（两个必须同时给，文字稿要与
+音色默认用 `tts.voices` 里该用途、该语言的参考。`tts synth` 可加 `--voice WAV --voice-text 文字稿`（两个必须同时给，文字稿要与
 音频一字不差）临时替换，也可加 `--instruction`、`--seed`。选型结论见 [docs/tts-models.md](docs/tts-models.md)。
 
 ## 服务
@@ -69,6 +69,15 @@ hf download Aratako/Irodori-TTS-v4.1-Small
 hf download Aratako/Semantic-DACVAE-Japanese-32dim
 ```
 
+Ming tiny（`video` 的中文）和 Ming 共用检出和 `.venv`。它钉死的 `x-transformers` 与 0.5B 冲突，独有的包装进
+单独目录，由 `mingTiny.packages` 放在 `PYTHONPATH` 前面。bf16 权重 18 GB，引擎加载时把专家流式量化成 int8，
+16 GB 显卡装得下：
+
+```bash
+uv pip install --target ~/projects/tts-eval/tiny-extra --no-deps x-transformers==2.7.4 fla-core==0.4.2
+uvx --from modelscope modelscope download --model inclusionAI/Ming-3.0-tts-tiny --local_dir ~/projects/tts-eval/ming-tiny-weights
+```
+
 ## Home Manager
 
 ```nix
@@ -83,16 +92,23 @@ services.local-models = {
   tts = {
     directory = "/home/me/projects/breeze-tts";
     modelDirectory = "/home/me/projects/breeze-tts-2";
-    voices = {
-      en = {
-        path = "/home/me/voices/en.wav";
-        text = "参考音频的准确文字稿";
-      };
-      # zh、ja 同样写，每种语言一条同语言参考
+    # 按用途、语言各一条同语言参考；克隆照搬参考的语气，视频要有表演的参考
+    voices.anki.en = {
+      path = "/home/me/voices/en.wav";
+      text = "参考音频的准确文字稿";
+    };
+    voices.video.zh = {
+      path = "/home/me/voices/story_zh.wav";
+      text = "参考音频的准确文字稿";
     };
     ming = {
       directory = "/home/me/projects/ming";
       modelDirectory = "/home/me/projects/ming/weights";
+    };
+    mingTiny = {
+      directory = "/home/me/projects/ming";
+      packages = "/home/me/projects/tiny-extra";
+      modelDirectory = "/home/me/projects/ming-tiny-weights";
     };
     qwen = {
       directory = "/home/me/projects/qwen3-tts";

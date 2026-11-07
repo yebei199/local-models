@@ -53,7 +53,8 @@ scene-narrate、scene-show         在调用方本机运行，只用 ffmpeg 和 
   网关退出时带走模型，所以空闲回收和 `scene-*` 的避让都只需要停 `tts-backend.service`。
 - 所有模型都讲 Breeze 的协议：multipart 的 `text`、`ref_text`、`ref_audio`，返回裸 PCM 和
   `X-Sample-Rate`。`engines/` 把 Qwen、Irodori 和 Ming 包成这个协议，网关才不用区分模型。
-- 固定音色在模型主机上，每种语言一条同语言参考，由网关按 `language` 补进请求，调用方不必携带音频。
+- 固定音色在模型主机上，按 `use` 和 `language` 各配一条同语言参考，由网关补进请求，调用方不必携带音频。
+  克隆会照搬参考的语气，所以视频用讲故事的参考，制卡用安静的参考。
 - TTS 只绑回环，远程必须走 ssh 转发。ComfyUI 不走 ssh：客户端访问 `COMFYUI_URL`，backend 额外
   监听 Tailscale 地址，取不到地址时退回只绑回环。
 - `isLocal(host)` 决定走本机还是 ssh：空字符串和模型主机自己的主机名都算本机。
@@ -71,6 +72,7 @@ nix/
 engines/
   common.py             Breeze 协议的 HTTP 服务，只用标准库和 numpy
   qwen.py、irodori.py、ming.py  各模型的加载和合成，跑在模型自己的 .venv 里
+  mingtiny.py           Ming tiny：专家权重流式量化到 int8；文件名不能叫 ming_tiny.py，会遮住上游同名包
 skills/
   local-models/SKILL.md 给 AI 用的命令说明，由 Home Manager 模块安装；改命令或路由时同步更新
   model-weights/SKILL.md 权重下载来源的实测结论和核对方法，同样由模块安装

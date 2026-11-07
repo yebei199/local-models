@@ -11,13 +11,13 @@ description: Generate speech, images or video on the local GPU with the tts and 
 
 ```bash
 tts synth --text T --output F.wav --lang en|ja|zh --use anki|video
-tts batch --batch-file F.jsonl   # 每行 {"text","output","lang","use"}，路径相对清单文件
+tts batch --batch-file F.jsonl   # 每行 {"text","output","lang","use"}，可选 "instruction"、"seed"（字符串）；路径相对清单文件
 ```
 
 | `--use` | 用途 | en、zh | ja |
 |---|---|---|---|
 | `anki`（默认） | 自用制卡 | Breeze | Irodori |
-| `video` | 公开视频 | Ming | Ming |
+| `video` | 公开视频 | en：Ming，zh：Ming tiny | Ming |
 
 - `--lang` 必填，命令不检测语言。按卡片或稿子的语言传，不要按字面猜：`学校` 这样的纯汉字词字面上分不出日语和中文。
 - 只要内容会公开发布就用 `--use video`。Breeze 的许可禁止任何变现内容，没有创作者例外。
@@ -26,10 +26,15 @@ tts batch --batch-file F.jsonl   # 每行 {"text","output","lang","use"}，路�
 - 日语里的生僻英文词 Irodori 会读错（`resilient`），写成片假名（`レジリエント`）就对了。
 - 英语或中文句子里夹日语、英语句子里夹中文读不准，要拆开，单词放到卡片自己的字段里分别生成。
 - 不到一秒的单词音频最不稳：Qwen 曾把单独的 `図書館` 读错。这类音频要让用户听一下。
-- 音色已按语言固定，不用传 `--voice`。传的话必须带逐字一致的 `--voice-text`。不要用声优或角色的声音做公开内容：
+- 音色已按用途和语言固定，不用传 `--voice`。传的话必须带逐字一致的 `--voice-text`。不要用声优或角色的声音做公开内容：
   模型许可不覆盖声音权利。
 - 整篇口播用 `tts batch`，它按模型分组，每个模型只加载一次。
-- 换模型后的第一句要 10 到 30 秒，之后每句 2 到 4 秒。这是正常冷启动，不是卡死；单次请求最多等 10 分钟。
+- 视频中文口播每行带同一条表演指令，例如 `像给朋友讲一个有转折的故事，有快有慢，句子之间节奏变化明显，关键词加重。`
+  指令只写语气和节奏，不写音色、音区或年龄：音色来自固定参考，写了会把表演压平。不带指令时只照搬参考的语气。
+- 每行是一个文件，也是模型一次看到的全部上下文。要语气连贯的两三句放在同一行，不要整段放一行：太长会超出模型上限。
+- 不要把模型自己的输出当参考喂回去续写，前后会变成不同的人或出现恐怖谷。
+- 换模型后的第一句要 10 到 30 秒，之后每句 2 到 4 秒。Ming tiny 的冷启动要 1 到 2 分钟，之后每秒音频约 1.3 秒。
+  这是正常冷启动，不是卡死；单次请求最多等 10 分钟。
 - 转写和原文一致不代表好听，也查不出吞音。音质由用户试听判断。
 - 试听交付给 URL，不要给文件路径，也不要用 `xdg-open`（这里只弹应用选择器）。把一个 `.html` 或带 `index.html` 的目录放进模型主机的
   `~/.local/share/local-models/web`，不用重启，地址是模型主机 tailnet 域名的 `https://…:18096/`。交付前 `curl` 确认能访问。
