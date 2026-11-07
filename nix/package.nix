@@ -64,6 +64,7 @@ symlinkJoin {
     comfyui = command "comfyui-backend" "backend" "start";
     wait = command "model-wait" "backend" "wait";
     gate = command "model-gate" "gate" "";
+    web = command "model-web" "web" "";
   };
   passthru.engines = engines;
   meta = {

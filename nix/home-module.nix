@@ -118,6 +118,7 @@ let
   );
   comfyCondition.ConditionPathIsDirectory = "${cfg.comfyui.directory}/ComfyUI";
   ttsCondition.ConditionPathIsDirectory = cfg.tts.directory;
+  webCondition.ConditionPathIsDirectory = cfg.web.directory;
 in
 {
   options.services.local-models = {
@@ -135,6 +136,15 @@ in
       type = types.str;
       default = "30min";
       description = "Idle time after which a service exits and returns its VRAM.";
+    };
+    web = {
+      directory = mkOption {
+        type = types.str;
+        default = "${config.xdg.dataHome}/local-models/web";
+        description = "Pages to publish; hosts without this directory skip the service.";
+      };
+      # 刻意落在 tailnet-https 的 8000-8199：只绑回环，Caddy 给它 +10000 的 HTTPS 入口。
+      port = port 8096;
     };
     comfyui = {
       directory = mkOption { type = types.str; };
@@ -260,6 +270,9 @@ in
       ".claude/skills/local-models/SKILL.md".source = ../skills/local-models/SKILL.md;
       ".agents/skills/local-models/SKILL.md".source = ../skills/local-models/SKILL.md;
       ".codex/skills/local-models".source = ../skills/local-models;
+      ".claude/skills/model-weights/SKILL.md".source = ../skills/model-weights/SKILL.md;
+      ".agents/skills/model-weights/SKILL.md".source = ../skills/model-weights/SKILL.md;
+      ".codex/skills/model-weights".source = ../skills/model-weights;
     };
 
     # socket 也要 keep-old：重启 socket 会经 Requires 带停正在跑的后端。换端口后手动重启 socket 才生效。
@@ -354,6 +367,26 @@ in
         SuccessExitStatus = [ 143 ];
         Restart = "no";
       };
+    };
+
+    # 不占显存，所以常驻，不走 socket 和空闲回收。
+    systemd.user.services.local-models-web = {
+      Unit = {
+        Description = "Audition pages for the tailnet";
+        X-SwitchMethod = "keep-old";
+      }
+      // webCondition;
+      Service = {
+        Type = "simple";
+        Environment = [
+          "PORT=${toString cfg.web.port}"
+          "WEB_DIR=${cfg.web.directory}"
+        ];
+        ExecStart = lib.getExe' package.service.web "model-web";
+        SuccessExitStatus = [ 143 ];
+        Restart = "on-failure";
+      };
+      Install.WantedBy = [ "default.target" ];
     };
   };
 }

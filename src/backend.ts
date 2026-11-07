@@ -90,7 +90,7 @@ export async function requireVram(needed: number, seconds: number): Promise<void
 }
 
 /** The port every port-bound subcommand operates on. */
-function portFromEnvironment(): string {
+export function portFromEnvironment(): string {
   const port = process.env.PORT;
   if (!port || !/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535)
     throw new Error('Consumer must supply a valid PORT');

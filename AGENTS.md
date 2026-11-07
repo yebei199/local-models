@@ -42,6 +42,9 @@ scene-image/video ── HTTP(S) ───► comfyui.socket 127.0.0.1:8088
   └── ssh systemctl stop ───────► tts-backend.service（开工前腾显存）
 
 scene-narrate、scene-show         在调用方本机运行，只用 ffmpeg 和 mpv
+
+浏览器 ── tailnet HTTPS :18096 ──► Caddy ──► local-models-web.service 127.0.0.1:8096（model-web）
+                                               └ 页面目录：每个试听一个 .html 或一个带 index.html 的目录
 ```
 
 - 第一个连接触发 socket，front 依赖 backend，`model-wait` 等端口绑定后 front 才开始转发。
@@ -54,6 +57,8 @@ scene-narrate、scene-show         在调用方本机运行，只用 ffmpeg 和 
 - TTS 只绑回环，远程必须走 ssh 转发。ComfyUI 不走 ssh：客户端访问 `COMFYUI_URL`，backend 额外
   监听 Tailscale 地址，取不到地址时退回只绑回环。
 - `isLocal(host)` 决定走本机还是 ssh：空字符串和模型主机自己的主机名都算本机。
+- 试听结果通过 web 服务交付，不让用户开本地 HTML。把页面放进 `web.directory` 就发布了，首页自动列出，
+  服务不用重启。它不碰模型和显存，所以常驻，不走 socket 和空闲回收。
 
 ## 文件架构
 
@@ -68,6 +73,7 @@ engines/
   qwen.py、irodori.py、ming.py  各模型的加载和合成，跑在模型自己的 .venv 里
 skills/
   local-models/SKILL.md 给 AI 用的命令说明，由 Home Manager 模块安装；改命令或路由时同步更新
+  model-weights/SKILL.md 权重下载来源的实测结论和核对方法，同样由模块安装
 docs/
   tts-models.md         模型试听结论和当前选择
 audition/
@@ -82,13 +88,14 @@ src/
   narrate.ts            scene-narrate：用 ffmpeg 拼环境声、整句、单词旁白
   show.ts               scene-show：开 mpv 窗口，只关自己记录过的进程组
   backend.ts            单元用的 start（启动 ComfyUI）、wait（等端口）、vram（显存守卫）
+  web.ts                model-web：发布页面目录，生成首页，支持 Range
 tests/
   helpers.ts            黑盒工具：真实子进程和临时目录，fakeTool 在 PATH 上放假程序
   *.test.ts             与 src 入口一一对应；wav 和 host 经 tts、scene 覆盖
 ```
 
 `package.nix` 的入口映射：`scene-image` 和 `scene-video` 都是 `scene.ts`，`comfyui-backend`、
-`model-wait` 都是 `backend.ts`，`model-gate` 是 `gate.ts`，这三个通过 `passthru.service` 只给单元用，
+`model-wait` 都是 `backend.ts`，`model-gate` 是 `gate.ts`，`model-web` 是 `web.ts`，这四个通过 `passthru.service` 只给单元用，
 不进用户 PATH。模型的启动命令由 `home-module.nix` 写进网关配置 `GATE_CONFIG`。
 
 ## 验证
@@ -121,7 +128,8 @@ flake 只看 git 已跟踪的文件，新文件要先 `git add` 才进 `nix flak
 
 - 新服务的回环端口要避开 3000-3099、5100-5199、7800-7899、8000-8199：这些段会被 tailnet-https
   自动暴露，对应的 +10000 端口也被它占用。TTS 的 8290/8291 就是因此选的。ComfyUI 的 8088 在段内，
-  这是有意的，`url` 示例里的 18088 就是它的 tailnet 入口。
+  这是有意的，`url` 示例里的 18088 就是它的 tailnet 入口。web 的 8096 同理，入口是 18096。
+- web 服务只绑回环，不要绑 tailnet 地址：常驻服务开机时 tailscaled 可能还没起来，TLS 和 tailnet 入口都交给 Caddy。
 
 **命令与包装**
 
@@ -146,6 +154,12 @@ flake 只看 git 已跟踪的文件，新文件要先 `git add` 才进 `nix flak
 
 - 代码是 GPL-3.0-only。Breeze 权重和输出仅限研究和非商业用途，所以 `video` 路由不能指向它。
 - 音频和参考声音不进仓库。
+
+**web 页面**
+
+- 页面目录里的文件 tailnet 上都读得到。盲听的版本对应表和量测数据放在目录外，点开头的路径只是兜底。
+- 音频必须支持 Range 并返回 `Cache-Control: no-cache`，否则浏览器不能拖动，改过的页面也会读到旧缓存。
+- 单元是 `keep-old`，改了 `web.ts` 部署后要手动重启 `local-models-web.service`。
 
 ## 代码约定
 
