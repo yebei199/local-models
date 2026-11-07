@@ -44,7 +44,7 @@ scene-image/video ── HTTP(S) ───► comfyui.socket 127.0.0.1:8088
 scene-narrate、scene-show         在调用方本机运行，只用 ffmpeg 和 mpv
 
 浏览器 ── tailnet HTTPS :18096 ──► Caddy ──► local-models-web.service 127.0.0.1:8096（model-web）
-                                               └ 页面目录：每个试听一个 .html 或一个带 index.html 的目录
+                                               └ 页面目录：每个试听一个 .html，或一个带 audition.json / index.html 的目录
 ```
 
 - 第一个连接触发 socket，front 依赖 backend，`model-wait` 等端口绑定后 front 才开始转发。
@@ -88,7 +88,9 @@ src/
   narrate.ts            scene-narrate：用 ffmpeg 拼环境声、整句、单词旁白
   show.ts               scene-show：开 mpv 窗口，只关自己记录过的进程组
   backend.ts            单元用的 start（启动 ComfyUI）、wait（等端口）、vram（显存守卫）
-  web.ts                model-web：发布页面目录，生成首页，支持 Range
+  web.ts                model-web：发布页面目录、读机器状态、支持 Range
+  pages.ts              首页和试听页的渲染，定义 audition.json 的结构
+  web/                  page.css 和 player.js，所有生成页共用
 tests/
   helpers.ts            黑盒工具：真实子进程和临时目录，fakeTool 在 PATH 上放假程序
   *.test.ts             与 src 入口一一对应；wav 和 host 经 tts、scene 覆盖
@@ -157,6 +159,8 @@ flake 只看 git 已跟踪的文件，新文件要先 `git add` 才进 `nix flak
 
 **web 页面**
 
+- 所有页面共用这一个端口，不为新页面另开端口或临时 HTTP 服务。
+- 新的对比试听写 `audition.json` 让服务渲染，不要手写 HTML：共用播放器保证一次只响一段，同一行切版本时保持进度。
 - 页面目录里的文件 tailnet 上都读得到。盲听的版本对应表和量测数据放在目录外，点开头的路径只是兜底。
 - 音频必须支持 Range 并返回 `Cache-Control: no-cache`，否则浏览器不能拖动，改过的页面也会读到旧缓存。
 - 单元是 `keep-old`，改了 `web.ts` 部署后要手动重启 `local-models-web.service`。

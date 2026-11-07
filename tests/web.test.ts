@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { scratch } from './helpers';
+import { fakeTool, scratch } from './helpers';
 
 const children: Bun.Subprocess[] = [];
 
@@ -20,10 +20,10 @@ function freePort(): number {
 }
 
 /** Start the server on `root` and return its base URL once it answers. */
-async function serve(root: string): Promise<string> {
+async function serve(root: string, path = process.env.PATH ?? ''): Promise<string> {
   const port = freePort();
   const child = Bun.spawn([process.execPath, resolve('src/web.ts')], {
-    env: { PATH: process.env.PATH ?? '', PORT: String(port), WEB_DIR: root },
+    env: { PATH: path, PORT: String(port), WEB_DIR: root },
     stdout: 'ignore',
     stderr: 'inherit',
   });
@@ -70,6 +70,91 @@ describe('home page', () => {
     const root = join(scratch(), 'web');
     mkdirSync(root);
     expect(await (await fetch(await serve(root))).text()).toContain('还没有页面');
+  });
+});
+
+describe('machine state', () => {
+  /** PATH with a GPU at 4096 of 16384 MiB and only the speech gate running. */
+  function busyHost(dir: string): string {
+    fakeTool(dir, 'nvidia-smi', "console.log('4096, 16384');");
+    const script =
+      "console.log(process.argv.at(-1) === 'tts-backend.service' ? 'active' : 'inactive');";
+    return `${fakeTool(dir, 'systemctl', script)}:${process.env.PATH}`;
+  }
+
+  test('shows VRAM and which services hold the GPU', async () => {
+    const dir = scratch();
+    const html = await (await fetch(await serve(site(), busyHost(dir)))).text();
+    expect(html).toContain('4.0 / 16.0 GiB');
+    expect(html).toContain('width:25%');
+    expect(html).toContain('badge on');
+  });
+
+  test('leaves the strip out on a host without a GPU', async () => {
+    const dir = scratch();
+    const bin = fakeTool(dir, 'systemctl', "console.log('inactive');");
+    const html = await (await fetch(await serve(site(), bin))).text();
+    expect(html).not.toContain('显存');
+    expect(html).toContain('盲听');
+  });
+});
+
+describe('auditions', () => {
+  const audition = {
+    title: '音色 <对比>',
+    description: '同一句话',
+    sections: [
+      {
+        title: '英语',
+        columns: ['甲', '乙'],
+        rows: [{ label: '第一句', takes: [{ src: 'a.mp3', meta: '0:03' }, null] }],
+      },
+    ],
+  };
+
+  /** A site with the audition above in `voices/`. */
+  function withAudition(data: string): string {
+    const root = site();
+    mkdirSync(join(root, 'voices'));
+    writeFileSync(join(root, 'voices/audition.json'), data);
+    return root;
+  }
+
+  test('renders the comparison with the shared player', async () => {
+    const base = await serve(withAudition(JSON.stringify(audition)));
+    const html = await (await fetch(`${base}/voices/`)).text();
+    expect(html).toContain('音色 &lt;对比&gt;');
+    expect(html).toContain('data-src="a.mp3"');
+    expect(html).toContain('英语 · 第一句 · 甲');
+    expect(html).toContain('不支持');
+    expect(html).toContain('/assets/player.js');
+  });
+
+  test('lists it with its size', async () => {
+    const html = await (await fetch(await serve(withAudition(JSON.stringify(audition))))).text();
+    expect(html).toContain('1 段');
+    expect(html).toContain('同一句话');
+  });
+
+  test('says which row is wrong instead of rendering a broken table', async () => {
+    const broken = structuredClone(audition);
+    broken.sections[0]?.rows[0]?.takes.pop();
+    const base = await serve(withAudition(JSON.stringify(broken)));
+    const response = await fetch(`${base}/voices/`);
+    expect(response.status).toBe(500);
+    expect(await response.text()).toContain('第一句');
+  });
+
+  test('keeps a broken audition listed', async () => {
+    const html = await (await fetch(await serve(withAudition('{')))).text();
+    expect(html).toContain('audition.json 有误');
+  });
+
+  test('serves the assets', async () => {
+    const base = await serve(site());
+    expect((await fetch(`${base}/assets/page.css`)).status).toBe(200);
+    const script = await fetch(`${base}/assets/player.js`);
+    expect(script.headers.get('Content-Type')).toContain('javascript');
   });
 });
 

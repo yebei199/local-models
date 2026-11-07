@@ -2,15 +2,24 @@
 import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import { portFromEnvironment } from './backend';
+import {
+  auditionPage,
+  type Entry,
+  homePage,
+  type Machine,
+  parseAudition,
+  takeCount,
+} from './pages';
 
 /** Pages and their audio change together, so browsers must revalidate; seeking audio needs Range. */
 const common = { 'Cache-Control': 'no-cache', 'Accept-Ranges': 'bytes' };
+const html = { ...common, 'Content-Type': 'text/html; charset=utf-8' };
 
-interface Page {
-  href: string;
-  title: string;
-  modified: Date;
-}
+/** Shipped with the server, so these names shadow any same-named path in the page directory. */
+const assets: Record<string, string> = {
+  '/assets/page.css': join(import.meta.dir, 'web/page.css'),
+  '/assets/player.js': join(import.meta.dir, 'web/player.js'),
+};
 
 /** Resolve a URL path inside the root. Dot paths stay private, and the real-path check keeps a
  * symlink or an encoded separator from reaching files the tailnet should not read. */
@@ -25,42 +34,84 @@ function locate(root: string, pathname: string): string | null {
   }
 }
 
-/** A page is a top-level `.html` file, or a directory holding `index.html`. */
-async function page(root: string, name: string): Promise<Page | null> {
-  const path = locate(root, name);
-  if (!path) return null;
-  const directory = statSync(path).isDirectory();
-  const html = directory ? join(path, 'index.html') : path;
-  if (!html.endsWith('.html') || !existsSync(html)) return null;
-  const head = await Bun.file(html).slice(0, 4096).text();
+/** A page written as HTML keeps its own title and description. */
+async function htmlEntry(file: string, href: string, name: string): Promise<Entry> {
+  const head = await Bun.file(file).slice(0, 4096).text();
+  const description = head.match(/<meta name="description" content="([^"]*)"/i)?.[1];
   return {
-    href: `${encodeURIComponent(name)}${directory ? '/' : ''}`,
+    href,
     title: head.match(/<title>(.+?)<\/title>/is)?.[1]?.trim() ?? name,
-    modified: statSync(html).mtime,
+    modified: statSync(file).mtime,
+    ...(description ? { description } : {}),
   };
 }
 
-/** The home page is generated, so publishing a page only means copying it into the directory.
- * Titles come from page files, so they are escaped as text. */
+/** An audition that fails to parse stays listed: its page explains what is wrong. */
+async function auditionEntry(file: string, href: string, name: string): Promise<Entry> {
+  const modified = statSync(file).mtime;
+  try {
+    const audition = parseAudition(await Bun.file(file).text());
+    return {
+      href,
+      title: audition.title,
+      takes: takeCount(audition),
+      modified,
+      ...(audition.description ? { description: audition.description } : {}),
+    };
+  } catch {
+    return { href, title: name, description: 'audition.json 有误', modified };
+  }
+}
+
+/** A page is a top-level `.html` file, or a directory with `audition.json` or `index.html`. */
+async function entry(root: string, name: string): Promise<Entry | null> {
+  const path = locate(root, name);
+  if (!path) return null;
+  const href = encodeURIComponent(name);
+  if (!statSync(path).isDirectory())
+    return path.endsWith('.html') ? htmlEntry(path, href, name) : null;
+  if (existsSync(join(path, 'audition.json')))
+    return auditionEntry(join(path, 'audition.json'), `${href}/`, name);
+  const index = join(path, 'index.html');
+  return existsSync(index) ? htmlEntry(index, `${href}/`, name) : null;
+}
+
+/** Standard output of a tool, or nothing when it is missing or fails. */
+function output(command: string[]): string {
+  try {
+    const result = Bun.spawnSync(command);
+    return result.stdout.toString();
+  } catch {
+    return '';
+  }
+}
+
+/** A host without a GPU still serves pages, so a failed probe drops the strip, not the page. */
+function machine(): Machine | null {
+  const query = [
+    'nvidia-smi',
+    '--query-gpu=memory.used,memory.total',
+    '--format=csv,noheader,nounits',
+  ];
+  const [usedMib, totalMib] = output(query).split('\n')[0]?.split(',').map(Number) ?? [];
+  if (!usedMib || !totalMib) return null;
+  const active = (unit: string) =>
+    output(['systemctl', '--user', 'is-active', unit]).trim() === 'active';
+  return {
+    usedMib,
+    totalMib,
+    speech: active('tts-backend.service'),
+    images: active('comfyui-backend.service'),
+  };
+}
+
+/** The home page is generated, so publishing a page only means copying it into the directory. */
 async function home(root: string): Promise<Response> {
-  const found = await Promise.all(readdirSync(root).map((name) => page(root, name)));
-  const pages = found
+  const found = await Promise.all(readdirSync(root).map((name) => entry(root, name)));
+  const entries = found
     .filter((item) => item !== null)
     .sort((a, b) => b.modified.getTime() - a.modified.getTime());
-  const rows = pages.map(
-    (item) =>
-      `<li><a href="${Bun.escapeHTML(item.href)}">${Bun.escapeHTML(item.title)}</a>` +
-      `<time>${item.modified.toISOString().slice(0, 10)}</time></li>`,
-  );
-  const body = rows.length ? `<ul>${rows.join('')}</ul>` : '<p>还没有页面。</p>';
-  const html = `<!doctype html><html lang="zh"><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>本地模型</title>
-<style>:root{color-scheme:light dark}body{font:16px/1.6 system-ui,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1rem}
-ul{list-style:none;padding:0}li{display:flex;justify-content:space-between;gap:1rem;padding:.6rem 0;border-bottom:1px solid #8884}
-time{opacity:.6;font-variant-numeric:tabular-nums}</style><h1>本地模型</h1>${body}</html>`;
-  return new Response(html, {
-    headers: { ...common, 'Content-Type': 'text/html; charset=utf-8' },
-  });
+  return new Response(homePage(entries, machine()), { headers: html });
 }
 
 /** The byte span a Range header asks for: null means the whole file, 'invalid' means 416. */
@@ -90,19 +141,35 @@ function send(path: string, range: string | null): Response {
   });
 }
 
+/** A broken `audition.json` says what is wrong instead of showing an empty page. */
+async function directory(path: string): Promise<Response> {
+  const data = join(path, 'audition.json');
+  if (existsSync(data)) {
+    try {
+      const page = auditionPage(parseAudition(await Bun.file(data).text()));
+      return new Response(page, { headers: html });
+    } catch (error) {
+      return new Response(`audition.json: ${String(error)}`, { status: 500 });
+    }
+  }
+  const index = join(path, 'index.html');
+  return existsSync(index) ? send(index, null) : new Response('Not found', { status: 404 });
+}
+
 /** Route one request; pages use relative audio paths, so directories need their trailing slash. */
 async function respond(root: string, request: Request): Promise<Response> {
   if (request.method !== 'GET' && request.method !== 'HEAD')
     return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
   const { pathname } = new URL(request.url);
   if (pathname === '/') return home(root);
+  const asset = assets[pathname];
+  if (asset) return send(asset, null);
   const path = locate(root, pathname);
   if (!path) return new Response('Not found', { status: 404 });
   if (!statSync(path).isDirectory()) return send(path, request.headers.get('Range'));
   if (!pathname.endsWith('/'))
     return new Response(null, { status: 308, headers: { Location: `${pathname}/` } });
-  const index = join(path, 'index.html');
-  return existsSync(index) ? send(index, null) : new Response('Not found', { status: 404 });
+  return directory(path);
 }
 
 if (import.meta.main) {

@@ -379,6 +379,7 @@ in
       Service = {
         Type = "simple";
         Environment = [
+          "PATH=/run/current-system/sw/bin"
           "PORT=${toString cfg.web.port}"
           "WEB_DIR=${cfg.web.directory}"
         ];

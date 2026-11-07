@@ -39,7 +39,7 @@ RTX 5080 上的实测：冷启动约 35 秒，之后实时率约 0.8。不需要
 写死了 eager 注意力。不要用 `--fast-all`，它要 14.4 GiB。
 
 试听页由 `local-models-web.service` 发布：只绑回环的 8096，Caddy 提供 tailnet 上的 HTTPS 入口 18096。把一个
-`.html` 或带 `index.html` 的目录放进 `services.local-models.web.directory`（默认 `~/.local/share/local-models/web`），
+`.html`，或带 `audition.json` / `index.html` 的目录放进 `services.local-models.web.directory`（默认 `~/.local/share/local-models/web`），
 首页就会列出它。主机上没有这个目录时服务跳过，先手动建好。盲听的答案不要放进去，目录里的文件 tailnet 上都能读到。
 
 ## 模型主机准备
