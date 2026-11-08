@@ -4,11 +4,13 @@
   "license": "GPL-3.0",
   "type": "module",
   "scripts": {
-    "build": "vite build web",
     "check": "biome ci --error-on-warnings . && tsc -p . && tsc -p web && bun run test",
-    "test": "bun test ./tests && bun test --preload ./web/tests/dom.ts ./web/tests"
+    "test": "bun test ./tests && bun test --preload ./web/tests/dom.ts ./web/tests",
+    "build": "vite build web",
+    "setup": "bun install --frozen-lockfile && bun run build && bun src/setup.ts"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.15",
     "@happy-dom/global-registrator": "21.0.4",
     "@tailwindcss/vite": "4.3.5",
     "@testing-library/dom": "10.4.2",
@@ -19,6 +21,7 @@
     "@vitejs/plugin-react": "6.2.1",
     "happy-dom": "21.0.4",
     "tailwindcss": "4.3.5",
+    "typescript": "7.0.2",
     "vite": "8.3.6"
   },
   "dependencies": {

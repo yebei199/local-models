@@ -40,12 +40,12 @@ RTX 5080 上的实测：冷启动约 35 秒，之后实时率约 0.8。不需要
 写死了 eager 注意力。不要用 `--fast-all`，它要 14.4 GiB。
 
 试听页由 `local-models-web.service` 发布，页面由 `web/` 的 React 前端渲染：只绑回环的 8096，Caddy 提供 tailnet 上的 HTTPS 入口 18096。把一个
-`.html`，或带 `audition.json` / `index.html` 的目录放进 `services.local-models.web.directory`（默认 `~/.local/share/local-models/web`），
-首页就会列出它。主机上没有这个目录时服务跳过，先手动建好。盲听的答案不要放进去，目录里的文件 tailnet 上都能读到。
+`.html`，或带 `audition.json` / `index.html` 的目录放进 `web.directory`（默认 `~/.local/share/local-models/web`），
+首页就会列出它。盲听的答案不要放进去，目录里的文件 tailnet 上都能读到。
 
 ## 模型主机准备
 
-模型代码和权重不进 flake，放在模块选项指定的目录：
+模型代码和权重不进仓库，放在 `config.json` 指定的目录：
 
 ```bash
 git clone https://github.com/breezeblue-ai/breeze-tts.git ~/projects/breeze-tts
@@ -71,7 +71,7 @@ hf download Aratako/Semantic-DACVAE-Japanese-32dim
 ```
 
 Ming tiny（`video` 的中文）和 Ming 共用检出和 `.venv`。它钉死的 `x-transformers` 与 0.5B 冲突，独有的包装进
-单独目录，由 `mingTiny.packages` 放在 `PYTHONPATH` 前面。bf16 权重 18 GB，引擎加载时把专家流式量化成 int8，
+单独目录，由 `tts.mingTiny.packages` 放在 `PYTHONPATH` 前面。bf16 权重 18 GB，引擎加载时把专家流式量化成 int8，
 16 GB 显卡装得下：
 
 ```bash
@@ -79,57 +79,70 @@ uv pip install --target ~/projects/tts-eval/tiny-extra --no-deps x-transformers=
 uvx --from modelscope modelscope download --model inclusionAI/Ming-3.0-tts-tiny --local_dir ~/projects/tts-eval/ming-tiny-weights
 ```
 
-## Home Manager
+## 安装和更新
 
-```nix
-imports = [ inputs.local-models.homeManagerModules.default ];
-services.local-models = {
-  enable = true;
-  host = "gpu-host";
-  comfyui = {
-    directory = "/home/me/comfy";
-    url = "https://gpu-host.example:18088";
-  };
-  tts = {
-    directory = "/home/me/projects/breeze-tts";
-    modelDirectory = "/home/me/projects/breeze-tts-2";
-    # 按用途、语言各一条同语言参考；克隆照搬参考的语气，视频要有表演的参考
-    voices.anki.en = {
-      path = "/home/me/voices/en.wav";
-      text = "参考音频的准确文字稿";
-    };
-    voices.video.zh = {
-      path = "/home/me/voices/story_zh.wav";
-      text = "参考音频的准确文字稿";
-    };
-    ming = {
-      directory = "/home/me/projects/ming";
-      modelDirectory = "/home/me/projects/ming/weights";
-    };
-    mingTiny = {
-      directory = "/home/me/projects/ming";
-      packages = "/home/me/projects/tiny-extra";
-      modelDirectory = "/home/me/projects/ming-tiny-weights";
-    };
-    qwen = {
-      directory = "/home/me/projects/qwen3-tts";
-      modelDirectory = "/home/me/projects/qwen3-tts/weights/1.7B-Base";
-    };
-    irodori.directory = "/home/me/projects/irodori";
-  };
-};
+不用 nix，直接用 bun 跑。主机上要有 bun、ffmpeg、ssh、systemctl；模型主机另要 nvidia-smi、ss、tailscale，
+跑 Breeze 还要 sox。setup 开头会检查，缺哪个就报哪个。
+
+每台主机克隆一份专门用来运行的检出，不和开发用的检出混用，改到一半的代码不会影响正在用的命令：
+
+```bash
+git clone https://github.com/yebei199/local-models.git ~/.local/share/local-models/src
 ```
 
-`host` 留空表示本机。包装脚本里的默认值可以用环境变量覆盖，显式设空的 `TTS_HOST` 表示本机。
+再写本机的 `~/.config/local-models/config.json`，然后安装。以后更新也是这一条：
+
+```bash
+cd ~/.local/share/local-models/src && git pull && bun run setup
+```
+
+`setup` 先装依赖、构建网页前端，再按配置写出三样东西：`~/.config/systemd/user` 下的服务、
+`~/.local/state/local-models/gate.json`（网关配置）、`~/.local/bin` 下的命令。它只启动还没在跑的服务，
+从不重启或停止模型服务，正在跑的显卡任务不会被打断；定义变了的运行中服务只提示，空闲时自己重启。
+网页服务不占显卡，每次都会重启。不是 setup 写的同名文件它不覆盖，直接报错。
+
+只调用命令的机器只写 `host` 和 ComfyUI 的地址：
+
+```json
+{ "host": "gpu-host", "comfyui": { "url": "https://gpu-host.example.ts.net:18088" } }
+```
+
+模型主机按自己有的服务写对应的段，没写的服务不装。`host` 写本机名也算本机：
+
+```json
+{
+  "host": "gpu-host",
+  "comfyui": { "directory": "/home/me/projects/explore", "url": "https://gpu-host.example.ts.net:18088" },
+  "web": {},
+  "tts": {
+    "directory": "/home/me/projects/breeze-tts",
+    "modelDirectory": "/home/me/projects/breeze-tts-2",
+    "voices": {
+      "anki": { "en": { "path": "/home/me/voices/quiet_en.wav", "text": "参考音频的准确文字稿" } },
+      "video": { "zh": { "path": "/home/me/voices/story_zh.wav", "text": "参考音频的准确文字稿" } }
+    },
+    "qwen": { "directory": "/home/me/projects/qwen3-tts", "modelDirectory": "/home/me/projects/qwen3-tts/weights/1.7B-Base" },
+    "irodori": { "directory": "/home/me/projects/irodori" },
+    "ming": { "directory": "/home/me/projects/ming", "modelDirectory": "/home/me/projects/ming/weights" },
+    "mingTiny": {
+      "directory": "/home/me/projects/ming",
+      "packages": "/home/me/projects/tiny-extra",
+      "modelDirectory": "/home/me/projects/ming-tiny-weights"
+    }
+  }
+}
+```
+
+可选项：`idleTime`（默认 `30min`）、`cudaLibraryPath`（默认 `/run/opengl-driver/lib`）、`web.directory`、
+`tts.routes`（默认见上面的路由表）、各引擎的 `requiredVram`（MiB，默认值写在 `src/setup.ts`，来自实测峰值）、
+`tts.mingTiny.bits`（4 或 8，默认 8）。
 
 ## 开发
 
 ```bash
-nix develop
 bun install
-bun run check
+bun run check   # biome、tsc、bun test，不需要 GPU
 bun run build   # 前端构建到 web/dist；cd web && bunx vite 开发，/api 代理到本机 8096
-nix flake check
 ```
 
 测试把外部程序（ssh、systemctl、mpv、nvidia-smi、模型服务）换成假的，真实地跑子进程和文件，
