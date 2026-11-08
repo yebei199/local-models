@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "vite build web",
-    "check": "biome ci --error-on-warnings . && tsc -p . && tsc -p web && bun test"
+    "check": "biome ci --error-on-warnings . && tsc -p . && tsc -p web && bun run test",
+    "test": "bun test ./tests && bun test --preload ./web/tests/dom.ts ./web/tests"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "21.0.4",

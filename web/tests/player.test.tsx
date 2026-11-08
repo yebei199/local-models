@@ -1,9 +1,6 @@
 // The shared player in a simulated DOM: one audio element, restart on switch, keys within a row.
 
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
-import { GlobalRegistrator } from '@happy-dom/global-registrator';
-
-GlobalRegistrator.register({ url: 'http://127.0.0.1/voices/' });
+import { afterEach, beforeAll, describe, expect, test } from 'bun:test';
 
 const { act, cleanup, fireEvent, render, screen } = await import('@testing-library/react');
 const { PlayerProvider, PlayerBar, usePlayer } = await import('@/components/player');
@@ -29,7 +26,6 @@ beforeAll(() => {
 });
 
 afterEach(cleanup);
-afterAll(() => GlobalRegistrator.unregister());
 
 const row: Track[] = ['a', 'b', 'c'].map((id) => ({
   id,

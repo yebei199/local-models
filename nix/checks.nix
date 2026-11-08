@@ -21,7 +21,7 @@ in
   '';
   test = check "test" [ pkgs.bun pkgs.ffmpeg ] ''
     ln -s ${nodeModules}/node_modules node_modules
-    bun test
+    bun run test
   '';
   ui = (pkgs.callPackage ./package.nix { }).ui;
 }
