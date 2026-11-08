@@ -2,3 +2,4 @@ node_modules
 result
 audition/manifest.js
 audition/media
+web/dist

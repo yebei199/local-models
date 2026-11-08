@@ -90,9 +90,12 @@ src/
   narrate.ts            scene-narrate：用 ffmpeg 拼环境声、整句、单词旁白
   show.ts               scene-show：开 mpv 窗口，只关自己记录过的进程组
   backend.ts            单元用的 start（启动 ComfyUI）、wait（等端口）、vram（显存守卫）
-  web.ts                model-web：发布页面目录、读机器状态、支持 Range
-  pages.ts              首页和试听页的渲染，定义 audition.json 的结构
-  web/                  page.css 和 player.js，所有生成页共用
+  web.ts                model-web：托管前端构建产物和 /api，发布页面目录、读机器状态、支持 Range
+  audition.ts           audition.json 和 /api 的类型，服务端和前端共用
+web/                    前端：React 19、TanStack Router 和 Query、Tailwind 4，Vite 构建
+  src/components/       player.tsx 是全站唯一的播放器；ui/ 照 meow_web 的 cva 写法
+  src/routes/           首页和试听页
+  tests/                组件测试，happy-dom
 tests/
   helpers.ts            黑盒工具：真实子进程和临时目录，fakeTool 在 PATH 上放假程序
   *.test.ts             与 src 入口一一对应；wav 和 host 经 tts、scene 覆盖
@@ -106,10 +109,12 @@ tests/
 
 ```bash
 nix develop -c bun run check   # biome、tsc、bun test，不需要 GPU
+nix develop -c bun run build   # 前端构建到 web/dist；开发时 cd web && bunx vite，/api 代理到本机 8096
 nix flake check                # 沙箱门禁，额外检查 nixfmt
 ```
 
-flake 只看 git 已跟踪的文件，新文件要先 `git add` 才进 `nix flake check`。测试不碰真实 GPU 和
+flake 只看 git 已跟踪的文件，新文件要先 `git add` 才进 `nix flake check`。前端改动要在浏览器里看过渲染结果；
+本地起服务：`PORT=8396 WEB_DIR=目录 WEB_UI=web/dist bun src/web.ts`。测试不碰真实 GPU 和
 模型，改动服务行为后要到模型主机上实跑才算验证过。
 
 ## 不能破坏的约束
@@ -170,13 +175,15 @@ flake 只看 git 已跟踪的文件，新文件要先 `git add` 才进 `nix flak
 - 切换版本总是从头播放，不要加进度同步：同一句的两个版本语速和停顿不同，同步过去的位置落在别处，反而没法对比重读。
 - 页面目录里的文件 tailnet 上都读得到。盲听的版本对应表和量测数据放在目录外，点开头的路径只是兜底。
 - 音频必须支持 Range 并返回 `Cache-Control: no-cache`，否则浏览器不能拖动，改过的页面也会读到旧缓存。
-- 单元是 `keep-old`，改了 `web.ts` 部署后要手动重启 `local-models-web.service`。
+- 单元是 `keep-old`，改了 `web.ts` 或 `web/` 部署后要手动重启 `local-models-web.service`。
+- 试听目录的地址就是它在页面目录里的路径（`/voices/`），服务端发前端外壳，前端从 `/api/auditions/voices`
+  取数据。音频路径相对这个地址解析，所以目录要带结尾斜杠。`/api/` 和 `/assets/` 归服务本身，页面目录里同名的路径读不到。
 
 ## 代码约定
 
-- 目前没有运行时依赖，这是现状不是规则，需要时直接引入。`nix/package.nix` 现在只打包 `src`，加运行时依赖时
-  要让包带上 `node_modules`。
-- 改 `bun.lock` 后要更新 `nix/checks.nix` 里的 `outputHash`。
+- 前端依赖只在构建时用：`nix/node-modules.nix` 按 `bun.lock` 固定输出下载，`package.nix` 用它 `vite build`，
+  包里只有产物。服务端（`src/`）仍然没有运行时依赖，这是现状不是规则。
+- 改 `bun.lock` 后要更新 `nix/node-modules.nix` 里的 `outputHash`。
 - biome 把警告当错误，认知复杂度上限 15，行宽 100。Nix 用 nixfmt。
 - 每个 `src` 文件首行用一句话写用途，函数的 `/** */` 写为什么这样做，不复述代码。TS 注释用英文，
   Nix 注释用中文。

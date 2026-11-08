@@ -1,25 +1,12 @@
-// Serve audition pages from a directory on loopback; Caddy adds TLS and the tailnet entry.
+// Serve the browser app, its JSON API and the page directory on loopback; Caddy adds TLS.
 import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { join, sep } from 'node:path';
+import { type Entry, type Machine, parseAudition, takeCount } from './audition';
 import { portFromEnvironment } from './backend';
-import {
-  auditionPage,
-  type Entry,
-  homePage,
-  type Machine,
-  parseAudition,
-  takeCount,
-} from './pages';
 
 /** Pages and their audio change together, so browsers must revalidate; seeking audio needs Range. */
 const common = { 'Cache-Control': 'no-cache', 'Accept-Ranges': 'bytes' };
-const html = { ...common, 'Content-Type': 'text/html; charset=utf-8' };
-
-/** Shipped with the server, so these names shadow any same-named path in the page directory. */
-const assets: Record<string, string> = {
-  '/assets/page.css': join(import.meta.dir, 'web/page.css'),
-  '/assets/player.js': join(import.meta.dir, 'web/player.js'),
-};
+const notFound = () => new Response('Not found', { status: 404 });
 
 /** Resolve a URL path inside the root. Dot paths stay private, and the real-path check keeps a
  * symlink or an encoded separator from reaching files the tailnet should not read. */
@@ -41,14 +28,14 @@ async function htmlEntry(file: string, href: string, name: string): Promise<Entr
   return {
     href,
     title: head.match(/<title>(.+?)<\/title>/is)?.[1]?.trim() ?? name,
-    modified: statSync(file).mtime,
+    modified: statSync(file).mtime.toISOString(),
     ...(description ? { description } : {}),
   };
 }
 
 /** An audition that fails to parse stays listed: its page explains what is wrong. */
 async function auditionEntry(file: string, href: string, name: string): Promise<Entry> {
-  const modified = statSync(file).mtime;
+  const modified = statSync(file).mtime.toISOString();
   try {
     const audition = parseAudition(await Bun.file(file).text());
     return {
@@ -67,7 +54,7 @@ async function auditionEntry(file: string, href: string, name: string): Promise<
 async function entry(root: string, name: string): Promise<Entry | null> {
   const path = locate(root, name);
   if (!path) return null;
-  const href = encodeURIComponent(name);
+  const href = `/${encodeURIComponent(name)}`;
   if (!statSync(path).isDirectory())
     return path.endsWith('.html') ? htmlEntry(path, href, name) : null;
   if (existsSync(join(path, 'audition.json')))
@@ -76,17 +63,22 @@ async function entry(root: string, name: string): Promise<Entry | null> {
   return existsSync(index) ? htmlEntry(index, `${href}/`, name) : null;
 }
 
+/** The newest work comes first, so publishing a page only means copying it into the directory. */
+async function entries(root: string): Promise<Entry[]> {
+  const found = await Promise.all(readdirSync(root).map((name) => entry(root, name)));
+  return found.filter((item) => item !== null).sort((a, b) => b.modified.localeCompare(a.modified));
+}
+
 /** Standard output of a tool, or nothing when it is missing or fails. */
 function output(command: string[]): string {
   try {
-    const result = Bun.spawnSync(command);
-    return result.stdout.toString();
+    return Bun.spawnSync(command).stdout.toString();
   } catch {
     return '';
   }
 }
 
-/** A host without a GPU still serves pages, so a failed probe drops the strip, not the page. */
+/** A host without a GPU still serves pages, so a failed probe answers null, not an error. */
 function machine(): Machine | null {
   const query = [
     'nvidia-smi',
@@ -103,15 +95,6 @@ function machine(): Machine | null {
     speech: active('tts-backend.service'),
     images: active('comfyui-backend.service'),
   };
-}
-
-/** The home page is generated, so publishing a page only means copying it into the directory. */
-async function home(root: string): Promise<Response> {
-  const found = await Promise.all(readdirSync(root).map((name) => entry(root, name)));
-  const entries = found
-    .filter((item) => item !== null)
-    .sort((a, b) => b.modified.getTime() - a.modified.getTime());
-  return new Response(homePage(entries, machine()), { headers: html });
 }
 
 /** The byte span a Range header asks for: null means the whole file, 'invalid' means 416. */
@@ -141,46 +124,65 @@ function send(path: string, range: string | null): Response {
   });
 }
 
-/** A broken `audition.json` says what is wrong instead of showing an empty page. */
-async function directory(path: string): Promise<Response> {
-  const data = join(path, 'audition.json');
-  if (existsSync(data)) {
-    try {
-      const page = auditionPage(parseAudition(await Bun.file(data).text()));
-      return new Response(page, { headers: html });
-    } catch (error) {
-      return new Response(`audition.json: ${String(error)}`, { status: 500 });
-    }
+/** A broken `audition.json` names the bad field, so the app can show it instead of a blank page. */
+async function audition(root: string, name: string): Promise<Response> {
+  const path = locate(root, name);
+  const data = path && join(path, 'audition.json');
+  if (!data || !existsSync(data)) return notFound();
+  try {
+    return Response.json(parseAudition(await Bun.file(data).text()), { headers: common });
+  } catch (error) {
+    return new Response(`audition.json: ${String(error)}`, { status: 500 });
   }
-  const index = join(path, 'index.html');
-  return existsSync(index) ? send(index, null) : new Response('Not found', { status: 404 });
 }
 
-/** Route one request; pages use relative audio paths, so directories need their trailing slash. */
-async function respond(root: string, request: Request): Promise<Response> {
+/** The JSON the browser app reads; everything else under /api/ does not exist. */
+async function api(root: string, pathname: string): Promise<Response> {
+  if (pathname === '/api/pages') return Response.json(await entries(root), { headers: common });
+  if (pathname === '/api/machine') return Response.json(machine(), { headers: common });
+  const name = pathname.match(/^\/api\/auditions\/([^/]+)$/)?.[1];
+  return name ? audition(root, name) : notFound();
+}
+
+/** A directory renders through the app when it holds an audition, otherwise as its own index. */
+function directory(path: string, shell: string): Response {
+  if (existsSync(join(path, 'audition.json'))) return send(shell, null);
+  const index = join(path, 'index.html');
+  return existsSync(index) ? send(index, null) : notFound();
+}
+
+/** Route one request; audition pages use relative audio paths, so directories need their slash. */
+async function respond(root: string, ui: string, request: Request): Promise<Response> {
   if (request.method !== 'GET' && request.method !== 'HEAD')
     return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
   const { pathname } = new URL(request.url);
-  if (pathname === '/') return home(root);
-  const asset = assets[pathname];
-  if (asset) return send(asset, null);
+  const shell = join(ui, 'index.html');
+  if (pathname === '/') return send(shell, null);
+  if (pathname.startsWith('/api/')) return api(root, pathname);
+  if (pathname.startsWith('/assets/')) {
+    const asset = locate(ui, pathname);
+    return asset ? send(asset, null) : notFound();
+  }
   const path = locate(root, pathname);
-  if (!path) return new Response('Not found', { status: 404 });
+  if (!path) return notFound();
   if (!statSync(path).isDirectory()) return send(path, request.headers.get('Range'));
   if (!pathname.endsWith('/'))
     return new Response(null, { status: 308, headers: { Location: `${pathname}/` } });
-  return directory(path);
+  return directory(path, shell);
 }
 
 if (import.meta.main) {
   try {
     const directory = process.env.WEB_DIR;
     if (!directory) throw new Error('Consumer must supply WEB_DIR');
+    const ui = process.env.WEB_UI;
+    if (!ui) throw new Error('Consumer must supply WEB_UI, the built browser app');
     const root = realpathSync(directory);
+    const app = realpathSync(ui);
     Bun.serve({
       hostname: '127.0.0.1',
       port: Number(portFromEnvironment()),
-      fetch: (request) => respond(root, request),
+      fetch: (request) => respond(root, app, request),
     });
   } catch (error) {
     console.error(String(error));

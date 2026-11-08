@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+/* One palette for every page, light and dark; components use the token names, never raw colours. */
+@theme {
+  --color-bg: #f3f5f4;
+  --color-panel: #fff;
+  --color-ink: #17201d;
+  --color-mute: #5b6964;
+  --color-line: #d5dcd9;
+  --color-accent: #0b6e5f;
+  --color-on-accent: #fff;
+  --color-soft: #d9ece8;
+  --color-busy: #a4400f;
+  --font-sans: "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #121816;
+    --color-panel: #1a2320;
+    --color-ink: #e6ecea;
+    --color-mute: #9aa9a4;
+    --color-line: #2f3c38;
+    --color-accent: #4cc4ae;
+    --color-on-accent: #08201b;
+    --color-soft: #20423b;
+    --color-busy: #f0a06c;
+  }
+}
+
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  @apply bg-bg text-ink font-sans leading-relaxed;
+}
