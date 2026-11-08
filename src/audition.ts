@@ -1,10 +1,12 @@
 // The shape of a published audition and of the web API; shared by the server and the browser app.
 
-/** One playable version. `meta` is a short fact such as its length. */
+/** One playable version. `meta` is a short fact such as its length. `dropped` records that the
+ * listener ruled it out; it stays playable, since a rejected take is still a reference point. */
 export interface Take {
   src: string;
   label: string;
   meta?: string;
+  dropped?: boolean;
 }
 
 /** One subject and whatever versions of it exist, so a missing version needs no placeholder. */

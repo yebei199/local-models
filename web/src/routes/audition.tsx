@@ -32,10 +32,12 @@ function RowBlock({ row, list }: { row: Row; list: Track[] }) {
               data-track={track.id}
               size='sm'
               aria-pressed={current?.id === track.id}
+              className={take.dropped ? 'opacity-55' : undefined}
               onClick={() => choose(track, list)}
             >
-              <span>{take.label}</span>
+              <span className={take.dropped ? 'line-through' : undefined}>{take.label}</span>
               {take.meta && <span className='text-mute tabular-nums'>{take.meta}</span>}
+              {take.dropped && <span className='text-xs text-mute'>淘汰</span>}
             </Button>
           );
         })}
