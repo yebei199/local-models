@@ -59,6 +59,9 @@ scene-show FILE                                     # 开窗口看产物，scene
 - 不加 `--raw` 时会自动套固定风格前缀。
 - 视频帧数必须满足 `17k+5` 且不超过 209，默认 124。
 - `scene-*` 开工前会停掉语音模型，之后第一句 `tts` 要重新冷启动，所以别把生图和制卡语音穿插着跑。
+- `scene-video` 的产物不进公开视频：MiniMax H3 的许可排除美国、欧盟、英国、韩国，并禁止在这些地区展示生成结果。
+- `scene-image` 的 flux-2-klein-9b 在 Hugging Face 标为非商用许可，全文要登录才能读，还没核对过。
+  公开内容出图用 Codex；要用 `scene-image` 出公开内容，先读许可全文。
 
 ## 音乐
 
@@ -66,7 +69,8 @@ scene-show FILE                                     # 开窗口看产物，scene
 scene-music "CAPTION" -o F.wav [--seconds N --lyrics TEXT --seed N]
 ```
 
-- 模型是 MiniMax Music 3。`--seconds` 是上限（默认 30，最多 360），模型自己决定在哪里收尾，实际常短几秒；
+- 模型是 MiniMax Music 3。许可允许年收入 2000 万美元以内使用，公开发布时简介要写明 `MiniMax-Music3`。
+  `--seconds` 是上限（默认 30，最多 360），模型自己决定在哪里收尾，实际常短几秒；
   要固定长度就生成长一点再剪。`--lyrics` 默认 `[Instrumental]`，即纯音乐；要人声就写带 `[Verse]`、`[Chorus]` 标签的歌词。
 - 30 秒的曲子冷启动约 55 秒，热的时候 20 到 40 秒。它会占满显卡，别的任务在跑时先等。
 - caption 写成三段：`Global Metadata:`（风格、BPM、拍号、情绪、音色质感）、`Vocal Details:`（纯音乐写
