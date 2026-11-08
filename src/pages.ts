@@ -3,19 +3,20 @@
 /** One playable version. `meta` is a short fact such as its length. */
 export interface Take {
   src: string;
+  label: string;
   meta?: string;
 }
 
-/** One comparison: the same line or seed across the section's columns. */
+/** One subject and whatever versions of it exist, so a missing version needs no placeholder. */
 export interface Row {
   label: string;
-  takes: (Take | null)[];
+  note?: string;
+  takes: Take[];
 }
 
 export interface Section {
   title: string;
   note?: string;
-  columns: string[];
   rows: Row[];
 }
 
@@ -52,15 +53,14 @@ export function parseAudition(raw: string): Audition {
   if (!Array.isArray(value.sections)) throw new Error('audition.json needs sections');
   for (const section of value.sections)
     for (const row of section.rows)
-      if (row.takes.length !== section.columns.length)
-        throw new Error(`${section.title}: row ${row.label} does not match its columns`);
+      if (!row.takes.length) throw new Error(`${section.title}: row ${row.label} has no takes`);
   return value;
 }
 
 /** Count the versions an audition offers. */
 export function takeCount(audition: Audition): number {
   const rows = audition.sections.flatMap((section) => section.rows);
-  return rows.flatMap((row) => row.takes).filter(Boolean).length;
+  return rows.flatMap((row) => row.takes).length;
 }
 
 function shell(title: string, body: string, script = ''): string {
@@ -102,31 +102,32 @@ export function homePage(entries: Entry[], machine: Machine | null): string {
   return shell('本地模型', `<main><h1>本地模型</h1>${state}${list}</main>`);
 }
 
-function cell(take: Take | null, title: string): string {
-  if (!take) return '<td><span class="none">不支持</span></td>';
+function button(take: Take, title: string): string {
   const meta = take.meta ? `<span class="time">${text(take.meta)}</span>` : '';
-  return `<td><button class="take" type="button" aria-pressed="false" data-src="${text(take.src)}"
-data-title="${text(title)}"><span>播放</span>${meta}</button></td>`;
+  return `<button class="take" type="button" aria-pressed="false" data-src="${text(take.src)}"
+data-title="${text(title)}"><span>${text(take.label)}</span>${meta}</button>`;
+}
+
+function rowBlock(section: Section, row: Row): string {
+  const note = row.note ? `<span class="detail">${text(row.note)}</span>` : '';
+  const takes = row.takes.map((take) =>
+    button(take, `${section.title} · ${row.label} · ${take.label}`),
+  );
+  return `<div class="row"><div class="subject"><span class="who">${text(row.label)}</span>${note}</div>
+<div class="takes">${takes.join('')}</div></div>`;
 }
 
 function sectionBlock(section: Section): string {
-  const head = section.columns.map((column) => `<th scope="col">${text(column)}</th>`).join('');
-  const rows = section.rows.map((row) => {
-    const cells = row.takes.map((take, index) =>
-      cell(take, `${section.title} · ${row.label} · ${section.columns[index]}`),
-    );
-    return `<tr><th scope="row">${text(row.label)}</th>${cells.join('')}</tr>`;
-  });
   const note = section.note ? `<p class="note">${text(section.note)}</p>` : '';
-  return `<section><h2>${text(section.title)}</h2>${note}<div class="scroll"><table>
-<thead><tr><th></th>${head}</tr></thead><tbody>${rows.join('')}</tbody></table></div></section>`;
+  const rows = section.rows.map((row) => rowBlock(section, row)).join('');
+  return `<section><h2>${text(section.title)}</h2>${note}<div class="rows">${rows}</div></section>`;
 }
 
 /** Audio paths in the data stay relative, so a page keeps working when its directory moves. */
 export function auditionPage(audition: Audition): string {
   const lead = audition.description ? `<p class="lead">${text(audition.description)}</p>` : '';
   const player = `<div class="player"><button class="toggle" type="button" disabled>播放</button>
-<div class="now">选一段开始播放，同一行切换时保持进度</div>
+<div class="now">未选择</div>
 <input type="range" min="0" max="1000" value="0" disabled aria-label="播放进度">
 <div class="clock">0:00 / 0:00</div></div>`;
   const body = `<main><a class="back" href="/">← 全部试听</a><h1>${text(audition.title)}</h1>${lead}

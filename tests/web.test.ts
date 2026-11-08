@@ -106,8 +106,16 @@ describe('auditions', () => {
     sections: [
       {
         title: '英语',
-        columns: ['甲', '乙'],
-        rows: [{ label: '第一句', takes: [{ src: 'a.mp3', meta: '0:03' }, null] }],
+        rows: [
+          { label: '第一句', note: '短句', takes: [{ src: 'a.mp3', label: '甲', meta: '0:03' }] },
+          {
+            label: '第二句',
+            takes: [
+              { src: 'b.mp3', label: '甲' },
+              { src: 'c.mp3', label: '乙' },
+            ],
+          },
+        ],
       },
     ],
   };
@@ -126,17 +134,17 @@ describe('auditions', () => {
     expect(html).toContain('音色 &lt;对比&gt;');
     expect(html).toContain('data-src="a.mp3"');
     expect(html).toContain('英语 · 第一句 · 甲');
-    expect(html).toContain('不支持');
+    expect(html).not.toContain('<table');
     expect(html).toContain('/assets/player.js');
   });
 
   test('lists it with its size', async () => {
     const html = await (await fetch(await serve(withAudition(JSON.stringify(audition))))).text();
-    expect(html).toContain('1 段');
+    expect(html).toContain('3 段');
     expect(html).toContain('同一句话');
   });
 
-  test('says which row is wrong instead of rendering a broken table', async () => {
+  test('says which row is wrong instead of rendering an empty one', async () => {
     const broken = structuredClone(audition);
     broken.sections[0]?.rows[0]?.takes.pop();
     const base = await serve(withAudition(JSON.stringify(broken)));

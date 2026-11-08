@@ -1,5 +1,6 @@
-// One shared player: a single audio element means takes never overlap, and switching within a row
-// keeps the position, which is what makes two versions of the same line comparable.
+// One shared player: a single audio element means takes never overlap. Switching always starts the
+// take from its beginning: two readings of a line differ in pace and pauses, so a carried-over
+// position lands somewhere else in the text and defeats comparing how the same line is read.
 const audio = new Audio();
 const takes = [...document.querySelectorAll('.take')];
 const toggle = document.querySelector('.toggle');
@@ -19,8 +20,6 @@ function choose(take) {
     else audio.pause();
     return;
   }
-  const sameRow = current?.closest('tr') === take.closest('tr');
-  const position = sameRow ? audio.currentTime : 0;
   current?.setAttribute('aria-pressed', 'false');
   take.setAttribute('aria-pressed', 'true');
   current = take;
@@ -28,19 +27,12 @@ function choose(take) {
   toggle.disabled = false;
   seek.disabled = false;
   audio.src = take.dataset.src;
-  audio.addEventListener(
-    'loadedmetadata',
-    () => {
-      audio.currentTime = Math.min(position, audio.duration || 0);
-      audio.play();
-    },
-    { once: true },
-  );
+  audio.play();
 }
 
 function neighbour(step) {
   if (!current) return;
-  const row = [...current.closest('tr').querySelectorAll('.take')];
+  const row = [...current.closest('.row').querySelectorAll('.take')];
   const next = row[(row.indexOf(current) + step + row.length) % row.length];
   choose(next);
   next.focus();
@@ -65,7 +57,7 @@ audio.addEventListener('error', () => {
   now.textContent = `无法播放：${current?.dataset.title ?? ''}`;
 });
 document.addEventListener('keydown', (event) => {
-  if (event.target.matches('input')) return;
+  if (event.target instanceof HTMLInputElement) return;
   if (event.key === ' ' && current) {
     event.preventDefault();
     choose(current);

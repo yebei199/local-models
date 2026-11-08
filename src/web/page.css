@@ -150,7 +150,7 @@ h2 {
   margin-top: 28px;
 }
 
-/* Audition: one row is one comparison, so columns must line up across rows. */
+/* Audition: a subject on the left, its versions on the right, however many exist. */
 section {
   margin-top: 36px;
 }
@@ -160,43 +160,42 @@ section {
   margin: 4px 0 0;
   max-width: 46em;
 }
-.scroll {
+.rows {
   margin-top: 12px;
-  overflow-x: auto;
-}
-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
   background: var(--panel);
   border: 1px solid var(--line);
 }
-th,
-td {
-  padding: 8px;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  font-weight: 400;
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 16em) minmax(0, 1fr);
+  gap: 8px 20px;
+  align-items: center;
+  padding: 12px 14px;
 }
-thead th {
-  color: var(--mute);
-  font-size: 13.5px;
-  vertical-align: bottom;
+.row + .row {
+  border-top: 1px solid var(--line);
 }
-th:first-child {
-  width: 9em;
-  font-size: 14.5px;
+.subject {
+  display: grid;
+  gap: 2px;
 }
-tbody th {
+.who {
   font-weight: 600;
 }
-.take {
+.detail {
+  color: var(--mute);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+.takes {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
-  width: 100%;
-  min-width: 104px;
-  padding: 8px 10px;
+}
+.take {
+  display: inline-flex;
+  gap: 10px;
+  padding: 7px 12px;
   font: inherit;
   font-size: 14px;
   color: var(--ink);
@@ -216,10 +215,6 @@ tbody th {
 .take .time {
   font-variant-numeric: tabular-nums;
   opacity: 0.75;
-}
-.none {
-  color: var(--mute);
-  font-size: 14px;
 }
 :focus-visible {
   outline: 2px solid var(--accent);
@@ -286,6 +281,9 @@ tbody th {
     grid-row: auto;
     grid-column: 1;
     text-align: left;
+  }
+  .row {
+    grid-template-columns: 1fr;
   }
   .player {
     grid-template-columns: auto minmax(0, 1fr) auto;
