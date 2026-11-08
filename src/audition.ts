@@ -20,11 +20,24 @@ export interface Section {
   rows: Row[];
 }
 
-/** The content of a directory's `audition.json`. */
+/** One sung or spoken line; the translation is for a listener who does not read the original. */
+export interface Line {
+  text: string;
+  translation?: string;
+}
+
+/** A labelled block of lines, such as a verse; the label is optional so plain text works too. */
+export interface Stanza {
+  label?: string;
+  lines: Line[];
+}
+
+/** The content of a directory's `audition.json`. `lyrics` is the text every take performs. */
 export interface Audition {
   title: string;
   description?: string;
   sections: Section[];
+  lyrics?: Stanza[];
 }
 
 /** What the home page shows for one published page; `modified` is an ISO timestamp. */
@@ -52,6 +65,10 @@ export function parseAudition(raw: string): Audition {
   for (const section of value.sections)
     for (const row of section.rows)
       if (!row.takes.length) throw new Error(`${section.title}: row ${row.label} has no takes`);
+  if (value.lyrics !== undefined && !Array.isArray(value.lyrics))
+    throw new Error('audition.json lyrics must be a list of stanzas');
+  for (const stanza of value.lyrics ?? [])
+    if (!Array.isArray(stanza.lines)) throw new Error(`lyrics ${stanza.label ?? ''} needs lines`);
   return value;
 }
 

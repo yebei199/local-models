@@ -163,6 +163,24 @@ describe('auditions', () => {
     expect(await response.text()).toContain('第一句');
   });
 
+  test('carries lyrics with their translation', async () => {
+    const lyrics = [
+      { label: 'Verse 1', lines: [{ text: 'Coins at the bottom', translation: '池底的硬币' }] },
+    ];
+    const base = await serve(withAudition(JSON.stringify({ ...audition, lyrics })));
+    const data = (await (await fetch(`${base}/api/auditions/voices`)).json()) as {
+      lyrics: unknown;
+    };
+    expect(data.lyrics).toEqual(lyrics);
+  });
+
+  test('refuses lyrics that are not stanzas', async () => {
+    const base = await serve(withAudition(JSON.stringify({ ...audition, lyrics: 'la la' })));
+    const response = await fetch(`${base}/api/auditions/voices`);
+    expect(response.status).toBe(500);
+    expect(await response.text()).toContain('lyrics');
+  });
+
   test('keeps a broken audition listed', async () => {
     const list = await pages(await serve(withAudition('{')));
     expect(list.find((entry) => entry.href === '/voices/')?.description).toBe('audition.json 有误');
