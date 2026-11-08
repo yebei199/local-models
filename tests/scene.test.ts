@@ -142,3 +142,57 @@ test('a first frame is uploaded and wired into the video graph', async () => {
   expect(prompts[0]?.['5']?.inputs.image).toBe('s/up.png');
   expect(prompts[0]?.['6']?.inputs.first_frame).toEqual(['5', 0]);
 });
+
+test('music fills caption, lyrics, length and both seeds, then converts FLAC to the output type', async () => {
+  const dir = scratch();
+  const flac = join(dir, 'm.flac');
+  const tone = ['-f', 'lavfi', '-i', 'sine=frequency=440:duration=0.5', flac];
+  expect(Bun.spawnSync(['ffmpeg', '-v', 'error', '-y', ...tone]).exitCode).toBe(0);
+  const prompts: Graph[] = [];
+  server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    async fetch(request) {
+      const { pathname } = new URL(request.url);
+      if (pathname === '/prompt') {
+        prompts.push(((await request.json()) as { prompt: Graph }).prompt);
+        return Response.json({ prompt_id: 'job' });
+      }
+      if (pathname === '/history/job')
+        return Response.json({ job: { outputs: { '13': { audio: [{ filename: 'm.flac' }] } } } });
+      if (pathname === '/view') return new Response(Bun.file(flac));
+      return new Response('{}');
+    },
+  });
+  const bin = fakeTool(dir, 'systemctl', '');
+  const output = join(dir, 'o.wav');
+  const result = await run(
+    'scene',
+    ['music', 'calm lo-fi', '-o', output, '--seconds', '20', '--seed', '7'],
+    {
+      COMFYUI_URL: `http://127.0.0.1:${server.port}`,
+      TTS_HOST: '',
+      PATH: `${bin}:${process.env.PATH}`,
+    },
+  );
+  expect(result).toMatchObject({ status: 0 });
+  expect(prompts[0]?.['4']?.inputs).toMatchObject({
+    caption: 'calm lo-fi',
+    lyrics: '[Instrumental]',
+    seed: 7,
+    max_duration: 20,
+  });
+  expect(prompts[0]?.['10']?.inputs.seed).toBe(7);
+  expect(readFileSync(output).subarray(0, 4).toString()).toBe('RIFF');
+});
+
+test('a music length beyond the encoder limit is rejected before any work', async () => {
+  const dir = scratch();
+  const { prompts, url } = comfy();
+  const result = await run('scene', ['music', 'x', '-o', join(dir, 'o.wav'), '--seconds', '400'], {
+    COMFYUI_URL: url,
+  });
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('360');
+  expect(prompts).toEqual([]);
+});

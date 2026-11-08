@@ -9,6 +9,7 @@
 | `tts batch --batch-file F` | JSONL 批量合成，每行 `{"text","output","lang","use"}`，路径相对清单文件 |
 | `scene-image SCENE -o F` | ComfyUI 生图 |
 | `scene-video SCENE -o F [--image FRAME]` | ComfyUI 生视频 |
+| `scene-music CAPTION -o F.wav [--seconds N --lyrics T]` | ComfyUI 生音乐（MiniMax Music 3），按扩展名转码 |
 | `scene-narrate VIDEO SENTENCE WORD OUT` | 给视频配「整句 → 半秒 → 单词」旁白 |
 | `scene-show FILE`、`scene-show --clear` | 开窗口看产物、关掉这些窗口 |
 

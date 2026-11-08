@@ -1,6 +1,8 @@
-// Submit the frozen Klein/H3 workflows and return their media without retaining GPU weights.
+// Submit the frozen Klein/H3/Music3 workflows and return their media without retaining GPU weights.
 import { randomInt, randomUUID } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, extname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { isLocal } from './host.ts';
 import templates from './workflows.json';
@@ -13,33 +15,34 @@ function validLength(length: number): boolean {
   return Number.isInteger(length) && length >= 5 && length <= 209 && (length - 5) % 17 === 0;
 }
 
+/** Music3's text encoder caps generation at 9000 frames of 25 per second. */
+const MAX_MUSIC_SECONDS = 360;
+
 /** Clone frozen graphs before modifying request-specific fields. */
-function workflow(
-  kind: 'image' | 'video',
-  prompt: string,
-  width: number,
-  height: number,
-  seed: number | bigint,
-  length = 124,
-  firstFrame?: string,
-): Graph {
+function workflow(kind: Kind, r: SceneRequest, firstFrame?: string): Graph {
   const graph: Graph = structuredClone(templates[kind]);
   const inputs = (id: string): Record<string, unknown> => {
     const node = graph[id];
     if (!node) throw new Error(`Missing workflow node ${id}`);
     return node.inputs;
   };
-  inputs('10').noise_seed = seed;
-  if (kind === 'image') {
+  const { prompt, width, height, seed } = r;
+  if (kind === 'music') {
+    // The autoregressive encoder and the sampler draw from separate generators; one seed fixes both.
+    Object.assign(inputs('4'), {
+      caption: prompt,
+      lyrics: r.lyrics,
+      seed,
+      max_duration: r.seconds,
+    });
+    inputs('10').seed = seed;
+  } else if (kind === 'image') {
+    inputs('10').noise_seed = seed;
     inputs('4').text = prompt;
     for (const key of ['6', '7']) Object.assign(inputs(key), { width, height });
   } else {
-    Object.assign(inputs('6'), {
-      prompt,
-      width,
-      height,
-      length,
-    });
+    inputs('10').noise_seed = seed;
+    Object.assign(inputs('6'), { prompt, width, height, length: r.length });
     if (firstFrame) {
       graph['5'] = {
         class_type: 'LoadImage',
@@ -93,14 +96,14 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-/** Select images and SaveVideo outputs using the same shared result field. */
+/** SaveImage and SaveVideo report under `images`, the audio savers under `audio`. */
 function firstOutput(value: unknown): Record<string, unknown> {
   const entry = record(value);
   if (entry.status && record(entry.status).status_str === 'error')
     throw new Error(`execution error: ${JSON.stringify(entry.status)}`);
   for (const item of Object.values(record(entry.outputs || {}))) {
-    const images = record(item).images;
-    if (Array.isArray(images) && images.length) return record(images[0]);
+    const files = record(item).images ?? record(item).audio;
+    if (Array.isArray(files) && files.length) return record(files[0]);
   }
   throw new Error('Execution finished without an output file');
 }
@@ -158,12 +161,13 @@ async function history(server: string, id: string, seconds: number): Promise<unk
   throw new Error(`Timeout: no output within ${seconds}s`);
 }
 
-type Kind = 'image' | 'video';
+type Kind = 'image' | 'video' | 'music';
 
-/** Per-kind CLI defaults and the style prefix prepended to non-raw prompts. */
-const DEFAULTS: Record<Kind, { width: number; height: number; timeout: number; style: string }> = {
+/** Per-kind CLI defaults; a style prefix is prepended to non-raw image and video prompts. */
+const DEFAULTS: Record<Kind, { width: number; height: number; timeout: number; style?: string }> = {
   image: { width: 1536, height: 1024, timeout: 600, style: templates.imageStyle },
   video: { width: 864, height: 480, timeout: 1200, style: templates.videoStyle },
+  music: { width: 0, height: 0, timeout: 900 },
 };
 
 /** A fully validated generation request. */
@@ -174,10 +178,24 @@ interface SceneRequest {
   height: number;
   seed: number | bigint;
   length: number;
+  seconds: number;
+  lyrics: string;
   timeout: number;
   server: string;
   image?: string;
   ttsHost: string;
+}
+
+/** Reject request shapes the frozen graphs cannot run before any GPU work starts. */
+function validate(kind: Kind, r: SceneRequest): void {
+  if (kind === 'video' && !validLength(r.length))
+    throw new Error(`Frame length ${r.length} must be 17k+5 and at most 209`);
+  if (kind === 'music' && !(r.seconds > 0 && r.seconds <= MAX_MUSIC_SECONDS))
+    throw new Error(`Music seconds must be in (0, ${MAX_MUSIC_SECONDS}]`);
+  if (kind === 'music' && !extname(r.output))
+    throw new Error('The music output needs an extension such as .wav or .flac');
+  if (![r.width, r.height, r.timeout].every(Number.isInteger))
+    throw new Error('Dimensions seed and timeout must be numeric');
 }
 
 /** The user-facing CLI keeps the old defaults, aliases and raw-prompt override. */
@@ -195,33 +213,31 @@ function parseRequest(kind: Kind, args: string[]): SceneRequest {
       length: { type: 'string' },
       timeout: { type: 'string' },
       image: { type: 'string' },
+      seconds: { type: 'string' },
+      lyrics: { type: 'string' },
       'tts-host': { type: 'string' },
     },
   });
   if (positionals.length !== 1 || !values.output)
     throw new Error('Provide one scene and --output FILE');
-  const length = Number(values.length ?? 124);
-  if (kind === 'video' && !validLength(length))
-    throw new Error(`Frame length ${String(values.length)} must be 17k+5 and at most 209`);
   const defaults = DEFAULTS[kind];
-  const width = Number(values.width ?? defaults.width);
-  const height = Number(values.height ?? defaults.height);
-  const seed = values.seed === undefined ? randomInt(2 ** 32) : seedInteger(values.seed);
-  const timeout = Number(values.timeout ?? defaults.timeout);
-  if (![width, height, timeout].every(Number.isInteger))
-    throw new Error('Dimensions seed and timeout must be numeric');
-  return {
+  const scene = positionals[0] ?? '';
+  const r: SceneRequest = {
     output: values.output,
-    prompt: values.raw ? (positionals[0] ?? '') : `${defaults.style}\n\nScene: ${positionals[0]}`,
-    width,
-    height,
-    seed,
-    length,
-    timeout,
+    prompt: values.raw || !defaults.style ? scene : `${defaults.style}\n\nScene: ${scene}`,
+    width: Number(values.width ?? defaults.width),
+    height: Number(values.height ?? defaults.height),
+    seed: values.seed === undefined ? randomInt(2 ** 32) : seedInteger(values.seed),
+    length: Number(values.length ?? 124),
+    seconds: Number(values.seconds ?? 30),
+    lyrics: values.lyrics ?? '[Instrumental]',
+    timeout: Number(values.timeout ?? defaults.timeout),
     server: (values.server ?? process.env.COMFYUI_URL ?? '').replace(/\/$/, ''),
     image: values.image,
     ttsHost: values['tts-host'] ?? process.env.TTS_HOST ?? '',
   };
+  validate(kind, r);
+  return r;
 }
 
 /** Fetch the produced file's bytes through ComfyUI's view endpoint. */
@@ -247,23 +263,41 @@ async function releaseWeights(server: string): Promise<void> {
   }
 }
 
+/** ComfyUI saves audio only as FLAC, so ffmpeg converts by the output's extension; the
+ * result is renamed into place so a failed conversion leaves no partial file. */
+function writeAudio(bytes: ArrayBuffer, output: string): void {
+  const dir = mkdtempSync(join(tmpdir(), 'scene-music-'));
+  const part = join(dirname(output), `.${basename(output)}.part${extname(output)}`);
+  try {
+    const source = join(dir, 'music.flac');
+    writeFileSync(source, Buffer.from(bytes));
+    const p = Bun.spawnSync(['ffmpeg', '-v', 'error', '-y', '-i', source, part]);
+    if (p.exitCode) throw new Error(`ffmpeg: ${p.stderr.toString().trim()}`);
+    renameSync(part, output);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(part, { force: true });
+  }
+}
+
 /** Submit one scene, wait for its output and write it to the requested file. */
 async function main(args: string[]): Promise<void> {
   const kind = args.shift();
-  if (kind !== 'image' && kind !== 'video')
-    throw new Error('Usage: scene image|video SCENE -o FILE');
+  if (kind !== 'image' && kind !== 'video' && kind !== 'music')
+    throw new Error('Usage: scene image|video|music SCENE -o FILE');
   const r = parseRequest(kind, args);
   await stopSpeech(r.ttsHost);
   const firstFrame = r.image ? await upload(r.server, r.image) : undefined;
-  const graph = workflow(kind, r.prompt, r.width, r.height, r.seed, r.length, firstFrame);
+  const graph = workflow(kind, r, firstFrame);
   const submitted = record(await (await request(r.server, '/prompt', { prompt: graph })).json());
   if (typeof submitted.prompt_id !== 'string') throw new Error('Invalid prompt id');
   console.log(`已提交: ${submitted.prompt_id} (seed=${r.seed})`);
   const output = firstOutput(await history(r.server, submitted.prompt_id, r.timeout));
   const bytes = await download(r.server, output);
-  writeFileSync(r.output, Buffer.from(bytes));
+  if (kind === 'music') writeAudio(bytes, r.output);
+  else writeFileSync(r.output, Buffer.from(bytes));
   await releaseWeights(r.server);
-  console.log(`产出: ${r.output} (${bytes.byteLength} 字节)`);
+  console.log(`产出: ${r.output} (${statSync(r.output).size} 字节)`);
 }
 
 if (import.meta.main) {

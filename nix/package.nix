@@ -56,6 +56,7 @@ symlinkJoin {
   paths = [
     (command "scene-image" "scene" "image")
     (command "scene-video" "scene" "video")
+    (command "scene-music" "scene" "music")
     (command "scene-narrate" "narrate" "")
     (command "scene-show" "show" "")
     (command "tts" "tts" "")
