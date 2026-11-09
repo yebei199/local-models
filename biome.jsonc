@@ -42,6 +42,9 @@
   },
   "linter": {
     "enabled": true,
+    // Declared rather than detected: under ~/.cache, where ship runs the gate, biome does not pick
+    // React up from the dependencies and its React rules go silent, so the lint differed by path.
+    "domains": { "react": "recommended" },
     "rules": {
       "preset": "recommended",
       "correctness": {
