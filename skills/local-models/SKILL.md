@@ -1,6 +1,6 @@
 ---
 name: local-models
-description: Generate speech, images, video or background music on the local GPU with the tts and scene-* commands. Load when making audio for Anki cards, voicing a video script, generating music for a video, or generating images because Codex is out of quota.
+description: Generate speech, images or video on the local GPU with the tts and scene-* commands. Load when making audio for Anki cards, voicing a video script, or generating images because Codex is out of quota.
 ---
 
 # local-models
@@ -62,21 +62,3 @@ scene-show FILE                                     # 开窗口看产物，scene
 - `scene-video` 的产物不进公开视频：MiniMax H3 的许可排除美国、欧盟、英国、韩国，并禁止在这些地区展示生成结果。
 - `scene-image` 的 flux-2-klein-9b 在 Hugging Face 标为非商用许可，全文要登录才能读，还没核对过。
   公开内容出图用 Codex；要用 `scene-image` 出公开内容，先读许可全文。
-
-## 音乐
-
-```bash
-scene-music "CAPTION" -o F.wav [--seconds N --lyrics TEXT --seed N]
-```
-
-- 模型是 MiniMax Music 3。许可允许年收入 2000 万美元以内使用，公开发布时简介要写明 `MiniMax-Music3`。
-  `--seconds` 是上限（默认 30，最多 360），模型自己决定在哪里收尾，实际常短几秒；
-  要固定长度就生成长一点再剪。`--lyrics` 默认 `[Instrumental]`，即纯音乐；要人声就写带 `[Verse]`、`[Chorus]` 标签的歌词。
-- 30 秒的曲子冷启动约 55 秒，热的时候 20 到 40 秒。它会占满显卡，别的任务在跑时先等。
-- caption 写成三段：`Global Metadata:`（风格、BPM、拍号、情绪、音色质感）、`Vocal Details:`（纯音乐写
-  `Instrumental, no vocals`）、`Arrangement:`（按段落写哪些乐器何时进来）。
-- BPM 是倾向，不是保证：写 `lo-fi` 常被拉回 85 到 95 BPM。要准确的速度就选该速度的常见风格（120 BPM 写 lo-fi house
-  加 `four-on-the-floor kick`），多给几个 seed，用 `frames beats` 量出速度和漏拍再挑。
-- 歌词里放 `[Intro]` 之类的多个段落标签时，实测出现过段落之间一秒多的静音；短的纯音乐只用一个 `[Instrumental]`，
-  在 caption 的 Arrangement 里描述鼓何时进来。
-- 能量化的只有节拍和响度，有没有人声、好不好听由用户试听判断。

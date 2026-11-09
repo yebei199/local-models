@@ -376,7 +376,6 @@ function commands(config: HostConfig, places: Places, bun: string, plan: Plan): 
     ['tts', 'tts.ts', ''],
     ['scene-image', 'scene.ts', 'image'],
     ['scene-video', 'scene.ts', 'video'],
-    ['scene-music', 'scene.ts', 'music'],
     ['scene-narrate', 'narrate.ts', ''],
     ['scene-show', 'show.ts', ''],
   ];

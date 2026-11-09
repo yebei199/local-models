@@ -37,7 +37,7 @@ tts ── ssh -L unix socket ──────► tts.socket 127.0.0.1:8290
                                         └ tts-backend.service :8291（model-gate）
                                             └ 当前模型 :8292（Breeze、Ming、Irodori 或 Qwen）
 
-scene-image/video/music ─ HTTP(S) ► comfyui.socket 127.0.0.1:8088
+scene-image/video ─── HTTP(S) ► comfyui.socket 127.0.0.1:8088
   │                                 └ comfyui.service（socket-proxyd）
   │                                     └ comfyui-backend.service :8089（ComfyUI）
   └── ssh systemctl stop ───────► tts-backend.service（开工前腾显存）
@@ -82,8 +82,8 @@ src/
   tts.ts                tts 命令：连接网关、synth 和 batch，batch 按模型分组
   gate.ts               model-gate：路由、串行队列、模型启停
   wav.ts                给模型返回的裸 PCM 加 WAV 头
-  scene.ts              scene-image、scene-video、scene-music：提交 ComfyUI 工作流、取回产物、释放权重
-  workflows.json        冻结的 image（Flux2 Klein GGUF）、video（MiniMax H3）、music（MiniMax Music 3）节点图及风格前缀
+  scene.ts              scene-image、scene-video：提交 ComfyUI 工作流、取回产物、释放权重
+  workflows.json        冻结的 image（Flux2 Klein GGUF）、video（MiniMax H3）节点图及风格前缀
   narrate.ts            scene-narrate：用 ffmpeg 拼环境声、整句、单词旁白
   show.ts               scene-show：开 mpv 窗口，只关自己记录过的进程组
   backend.ts            单元用的 start（启动 ComfyUI）、wait（等端口）、vram（显存守卫）
@@ -99,7 +99,7 @@ tests/
   *.test.ts             与 src 入口一一对应；wav 和 host 经 tts、scene 覆盖
 ```
 
-`setup.ts` 的入口映射：命令 `scene-image`、`scene-video`、`scene-music` 都是 `scene.ts`；单元直接用 bun 跑
+`setup.ts` 的入口映射：命令 `scene-image`、`scene-video` 都是 `scene.ts`；单元直接用 bun 跑
 `backend.ts start`、`backend.ts wait`、`gate.ts`、`web.ts`，这些不进用户 PATH。各模型的启动命令也由 `setup.ts`
 写进网关配置 `GATE_CONFIG`，主机只在 config.json 里给路径。
 
@@ -157,10 +157,8 @@ bun run build   # 前端构建到 web/dist；开发时 cd web && bunx vite，/ap
 **工作流**
 
 - `workflows.json` 是冻结数据，只由 `scene.ts` 的 `workflow` 改写固定节点：`10` 的 seed；image 的
-  `4`、`6`、`7`；video 的 `6`，以及带首帧时注入的 `5`；music 的 `4`（caption、lyrics、seed、max_duration）。
+  `4`、`6`、`7`；video 的 `6`，以及带首帧时注入的 `5`。
   改图时节点 id 要同步。
-- music 的 `4` 是自回归编码器，自己决定曲长，`max_duration` 只是上限；`6` 的长度接它的输出，不要改成常数。
-- ComfyUI 只存 FLAC，`scene-music` 在调用方用 ffmpeg 按 `-o` 的扩展名转码，转完再改名，失败不留半截文件。
 
 **许可与内容**
 

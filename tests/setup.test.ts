@@ -123,7 +123,7 @@ describe('commands', () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: shell expansion, not a template
     expect(tts).toContain('export TTS_HOST="${TTS_HOST-pc3}"');
     expect(tts).toContain(`'${resolve('src/tts.ts')}' -- "$@"`);
-    expect(h.file('.local/bin/scene-music')).toContain('scene.ts\' -- music "$@"');
+    expect(h.file('.local/bin/scene-video')).toContain('scene.ts\' -- video "$@"');
   });
 
   test('an explicitly empty host still means this machine', async () => {
