@@ -7,7 +7,8 @@
     "check": "biome ci --error-on-warnings . && tsc -p . && tsc -p web && bun run test",
     "test": "bun test ./tests && bun test --preload ./web/tests/dom.ts ./web/tests",
     "build": "vite build web",
-    "setup": "bun install --frozen-lockfile && bun run build && bun src/setup.ts"
+    "setup": "bun install --frozen-lockfile && bun run build && bun src/install.ts && bun src/setup.ts",
+    "verify": "bun src/install.ts --verify"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

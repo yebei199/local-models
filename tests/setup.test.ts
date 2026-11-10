@@ -8,14 +8,12 @@ import { fakeTool, scratch } from './helpers';
 /** A model host like pc3: Breeze, Qwen and Ming but no Irodori or tiny, ComfyUI, and the web pages. */
 const modelHost = {
   host: 'pc3',
-  comfyui: { directory: '/srv/explore', url: 'https://pc3.example:18088' },
+  models: '/srv/models',
+  comfyui: { url: 'https://pc3.example:18088', serve: true },
   web: {},
   tts: {
-    directory: '/srv/breeze',
-    modelDirectory: '/srv/breeze-weights',
     voices: { anki: { en: { path: '/srv/en.wav', text: 'Hi.' } } },
-    qwen: { directory: '/srv/qwen', modelDirectory: '/srv/qwen/weights' },
-    ming: { directory: '/srv/ming', modelDirectory: '/srv/ming/weights' },
+    engines: { breeze: {}, qwen: {}, ming: { requiredVram: 5000 } },
   },
 };
 
@@ -76,7 +74,9 @@ describe('model host', () => {
     expect(front).toContain('--exit-idle-time=30min 127.0.0.1:8291');
     expect(front).not.toContain('/nix/store/');
     expect(backend).not.toContain('/nix/store/');
-    expect(h.file(`${units}/comfyui-backend.service`)).toContain('COMFYUI_DIR=/srv/explore');
+    const comfy = h.file(`${units}/comfyui-backend.service`);
+    expect(comfy).toContain('MODELS=/srv/models');
+    expect(comfy).toContain('WorkingDirectory=/srv/models/comfyui/code');
     const web = h.file(`${units}/local-models-web.service`);
     expect(web).toContain(`WEB_DIR=${join(h.home, '.local/share/local-models/web')}`);
     expect(web).toContain(`WEB_UI=${resolve('web/dist')}`);
@@ -89,8 +89,27 @@ describe('model host', () => {
     expect(Object.keys(gate.engines).sort()).toEqual(['breeze', 'ming', 'qwen']);
     expect(gate.routes.anki).toEqual({ en: 'breeze', zh: 'breeze' });
     expect(gate.engines.qwen.command).toContain(resolve('engines/qwen.py'));
+    expect(gate.engines.qwen.command).toContain('/srv/models/qwen/weights');
+    expect(gate.engines.breeze.command[0]).toBe('/srv/models/breeze/venv/bin/python');
+    expect(gate.engines.ming.vram).toBe(5000);
     expect(gate.engines.qwen.environment.TRITON_LIBCUDA_PATH).toBe('/run/opengl-driver/lib');
     expect(gate.voices).toEqual(modelHost.tts.voices);
+  });
+
+  test('tiny runs from Ming checkout and venv with its own packages first', async () => {
+    const h = host();
+    const engines = { irodori: {}, 'ming-tiny': { bits: 4 } };
+    await h.run({ ...modelHost, tts: { ...modelHost.tts, engines } });
+    const gate = JSON.parse(h.file('.local/state/local-models/gate.json'));
+    const tiny = gate.engines['ming-tiny'];
+    expect(tiny.command.slice(0, 1)).toEqual(['/srv/models/ming/venv/bin/python']);
+    expect(tiny.command.join(' ')).toContain('--model /srv/models/ming-tiny/weights --bits 4');
+    expect(tiny.environment.PYTHONPATH).toBe(
+      '/srv/models/ming-tiny/packages:/srv/models/ming/code',
+    );
+    expect(gate.engines.irodori.command.join(' ')).toContain(
+      '--checkpoint /srv/models/irodori/weights/model.safetensors --codec /srv/models/irodori/weights/codec.pth',
+    );
   });
 
   test('starts the sockets and the web service but never restarts a model unit', async () => {
@@ -165,10 +184,17 @@ describe('refusals', () => {
     expect(child.stderr.toString()).toContain('.config/local-models/config.json');
   });
 
-  test('a model host without its required paths fails by field name', async () => {
+  test('a model host without engines fails by field name', async () => {
     const h = host();
-    const { status, out } = await h.run({ tts: { directory: '/srv/breeze', voices: {} } });
+    const { status, out } = await h.run({ tts: { voices: {}, engines: {} } });
     expect(status).toBe(1);
-    expect(out).toContain('tts.modelDirectory');
+    expect(out).toContain('tts.engines');
+  });
+
+  test('a config from before installs moved in names the retired keys', async () => {
+    const h = host();
+    const { status, out } = await h.run({ comfyui: { directory: '/srv/explore' } });
+    expect(status).toBe(1);
+    expect(out).toContain('comfyui.directory');
   });
 });

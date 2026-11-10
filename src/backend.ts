@@ -1,5 +1,5 @@
-// Start ComfyUI from its external environment, and gate services on port and VRAM state.
-import { join } from 'node:path';
+// Start the installed ComfyUI, and gate services on port and VRAM state.
+import { paths } from './manifest';
 
 /** The clock and probe seams bound cold-start waiting without slowing local contract tests. */
 async function waitBackend(probe: () => boolean, sleep: () => Promise<void>): Promise<boolean> {
@@ -18,24 +18,31 @@ function listening(port: string): boolean {
 
 /** Forward service termination to the inference child while retaining its exit status. */
 async function start(port: string): Promise<number> {
-  const project = process.env.COMFYUI_DIR;
+  const models = process.env.MODELS;
   const cuda = process.env.CUDA_LIB;
-  if (!project || !cuda)
-    throw new Error('Consumer must supply ComfyUI project and CUDA library paths');
+  if (!models || !cuda) throw new Error('Consumer must supply MODELS and CUDA_LIB paths');
+  const comfy = paths(models, 'comfyui');
   if (listening(port)) throw new Error(`Port ${port} is already in use`);
   const tail = Bun.spawnSync(['tailscale', 'ip', '-4']);
   const address = tail.exitCode === 0 ? tail.stdout.toString().split('\n')[0]?.trim() : '';
   if (!address) console.error('warn: no Tailscale address; listening only on loopback');
   const child = Bun.spawn(
     [
-      join(project, 'ComfyUI/.venv/bin/python'),
+      comfy.python,
       'main.py',
+      // Code and data apart: the pinned checkout is replaceable, models and outputs are not.
+      '--base-directory',
+      comfy.data,
       '--listen',
       `127.0.0.1${address ? `,${address}` : ''}`,
       '--port',
       port,
+      // DynamicVRAM streams weights from disk; --lowvram and friends would switch it off and
+      // 28 GB of H3 weights would no longer fit a 16 GB card.
       '--fast-disk',
+      // Pinning page-locks up to 90% of RAM; with 31 GB and H3 loaded the host swaps. Costs ~20%.
       '--disable-pinned-memory',
+      // Headroom for the display and other processes, so sampling is not squeezed out midway.
       '--reserve-vram',
       '1.5',
       '--preview-method',
@@ -44,7 +51,7 @@ async function start(port: string): Promise<number> {
       ...process.argv.slice(3),
     ],
     {
-      cwd: join(project, 'ComfyUI'),
+      cwd: comfy.code,
       env: {
         ...process.env,
         LD_LIBRARY_PATH: `${cuda}${process.env.LD_LIBRARY_PATH ? `:${process.env.LD_LIBRARY_PATH}` : ''}`,

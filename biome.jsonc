@@ -1,6 +1,8 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  // ComfyUI's sidebar saves these in its own format; reformatting them would fight every save.
+  "files": { "includes": ["**", "!comfyui/workflows"] },
   "formatter": {
     "enabled": true,
     "formatWithErrors": false,

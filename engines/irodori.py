@@ -1,13 +1,14 @@
 """Irodori-TTS: Japanese only, cloned from reference audio without needing its transcript."""
 
 import common
-from huggingface_hub import hf_hub_download
 from irodori_tts.inference_runtime import InferenceRuntime, RuntimeKey, SamplingRequest
 
-args = common.arguments("--checkpoint")
+# Local files from the install; the tokenizer is found beside the checkpoint.
+args = common.arguments("--checkpoint", "--codec")
 runtime = InferenceRuntime.from_key(
     RuntimeKey(
-        checkpoint=hf_hub_download(args.checkpoint, "model.safetensors"),
+        checkpoint=args.checkpoint,
+        codec_repo=args.codec,
         model_device="cuda",
         codec_device="cuda",
     )

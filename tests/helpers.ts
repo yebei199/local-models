@@ -30,6 +30,17 @@ export function fakeTool(dir: string, name: string, body: string): string {
   return bin;
 }
 
+/** Put a `/bin/sh` script named `name` into `dir/bin`, for fakes called often enough that Bun's
+ * startup would dominate the test. */
+export function fakeShell(dir: string, name: string, body: string): string {
+  const bin = join(dir, 'bin');
+  mkdirSync(bin, { recursive: true });
+  const path = join(bin, name);
+  writeFileSync(path, `#!/bin/sh\n${body}\n`);
+  chmodSync(path, 0o755);
+  return bin;
+}
+
 /** What a finished command left behind. */
 export interface Result {
   status: number;

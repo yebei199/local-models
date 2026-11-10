@@ -58,8 +58,9 @@ test('an invalid port is refused', async () => {
 
 test('start launches ComfyUI on loopback and the tailnet, keeping its exit status', async () => {
   const dir = scratch();
-  const python = join(dir, 'ComfyUI/.venv/bin/python');
-  mkdirSync(join(dir, 'ComfyUI/.venv/bin'), { recursive: true });
+  const python = join(dir, 'comfyui/venv/bin/python');
+  mkdirSync(join(dir, 'comfyui/venv/bin'), { recursive: true });
+  mkdirSync(join(dir, 'comfyui/code'), { recursive: true });
   const log = join(dir, 'args.log');
   writeFileSync(python, `#!/bin/sh\necho "$LD_LIBRARY_PATH $*" > "${log}"\nexit 3\n`);
   chmodSync(python, 0o755);
@@ -67,13 +68,14 @@ test('start launches ComfyUI on loopback and the tailnet, keeping its exit statu
   const bin = fakeTool(dir, 'tailscale', "console.log('100.64.0.1');");
   const result = await run('backend', ['start', '--extra'], {
     PORT: '8089',
-    COMFYUI_DIR: dir,
+    MODELS: dir,
     CUDA_LIB: '/cuda',
     PATH: `${bin}:${process.env.PATH}`,
   });
   expect(result.status).toBe(3);
   const args = readFileSync(log, 'utf8');
   expect(args).toStartWith('/cuda ');
+  expect(args).toContain(`--base-directory ${join(dir, 'comfyui/data')}`);
   expect(args).toContain('--listen 127.0.0.1,100.64.0.1 --port 8089');
   expect(args).toEndWith('--extra\n');
 });

@@ -1,6 +1,8 @@
 // Install this checkout on the current host from its config file: services, gate config, commands.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { type HostConfig, modelRoot, type Places, places, read } from './config';
+import { type Engine as Name, paths } from './manifest';
 
 /** The checkout every unit and command runs from, so `git pull` plus setup is the whole update. */
 const repo = resolve(import.meta.dir, '..');
@@ -13,38 +15,6 @@ const webPort = 8096;
 /** Every file setup writes carries this line; anything without it belongs to someone else. */
 const MARK = 'Written by local-models setup; edit config.json and run `bun run setup` instead.';
 
-interface Voice {
-  path: string;
-  text: string;
-}
-
-/** The host's own values; nothing here is checked into the repo. */
-interface HostConfig {
-  /** Model host for the commands; empty or this machine's name means local. */
-  host?: string;
-  idleTime?: string;
-  cudaLibraryPath?: string;
-  comfyui?: { directory?: string; url?: string };
-  web?: { directory?: string };
-  tts?: {
-    directory: string;
-    modelDirectory: string;
-    requiredVram?: number;
-    voices: Record<string, Record<string, Voice>>;
-    routes?: Record<string, Record<string, string>>;
-    qwen?: { directory: string; modelDirectory: string; requiredVram?: number };
-    irodori?: { directory: string; checkpoint?: string; requiredVram?: number };
-    ming?: { directory: string; modelDirectory: string; requiredVram?: number };
-    mingTiny?: {
-      directory: string;
-      packages: string;
-      modelDirectory: string;
-      bits?: 4 | 8;
-      requiredVram?: number;
-    };
-  };
-}
-
 interface Engine {
   command: string[];
   directory: string;
@@ -52,53 +22,79 @@ interface Engine {
   vram: number;
 }
 
-interface Places {
-  config: string;
-  state: string;
-  units: string;
-  bin: string;
-  web: string;
-}
-
-function places(): Places {
-  const home = process.env.HOME;
-  if (!home) throw new Error('setup: HOME is not set');
-  const config = process.env.XDG_CONFIG_HOME || join(home, '.config');
-  const data = process.env.XDG_DATA_HOME || join(home, '.local/share');
-  return {
-    config: process.env.LOCAL_MODELS_CONFIG || join(config, 'local-models/config.json'),
-    state: join(process.env.XDG_STATE_HOME || join(home, '.local/state'), 'local-models'),
-    units: join(config, 'systemd/user'),
-    bin: join(home, '.local/bin'),
-    web: join(data, 'local-models/web'),
-  };
-}
-
-/** Required strings fail here by name, not later as a unit that cannot start. */
-function need(value: unknown, field: string): string {
-  if (typeof value !== 'string' || !value) throw new Error(`config.json: ${field} must be a path`);
-  return value;
-}
-
-function read(path: string): HostConfig {
-  if (!existsSync(path)) throw new Error(`setup: write ${path} first (see README)`);
-  const config = JSON.parse(readFileSync(path, 'utf8')) as HostConfig;
-  const tts = config.tts;
-  if (tts) {
-    need(tts.directory, 'tts.directory');
-    need(tts.modelDirectory, 'tts.modelDirectory');
-    if (typeof tts.voices !== 'object') throw new Error('config.json: tts.voices is required');
-  }
-  if (config.comfyui?.directory !== undefined) need(config.comfyui.directory, 'comfyui.directory');
-  return config;
-}
-
-const python = (directory: string) => join(directory, '.venv/bin/python');
 const script = (name: string) => join(repo, 'engines', name);
 
-/** Each engine runs in its own project's venv and answers the Breeze speech contract. Peak VRAM
- * figures behind the defaults: Breeze eager 8320, Qwen cloning 4487, Ming 2963, tiny int8 11.1 GB. */
-function engines(tts: NonNullable<HostConfig['tts']>, cuda: string): Record<string, Engine> {
+type Tts = NonNullable<HostConfig['tts']>;
+
+/** Each engine runs from its installed checkout and venv and answers the Breeze speech contract.
+ * Peak VRAM behind the defaults: Breeze eager 8320, Qwen cloning 4487, Ming 2963, tiny int8 11.1 GB. */
+function engine(name: Name, models: string, tts: Tts, environment: Record<string, string>): Engine {
+  const at = paths(models, name);
+  const options = tts.engines[name] ?? {};
+  const listen = ['--port', String(port.engine)];
+  const withCode = { ...environment, PYTHONPATH: at.code };
+  switch (name) {
+    case 'breeze':
+      return {
+        directory: at.code,
+        command: [
+          at.python,
+          '-m',
+          'breeze_infer.api',
+          at.weights,
+          '--host',
+          '127.0.0.1',
+          ...listen,
+        ],
+        environment,
+        vram: options.requiredVram ?? 9000,
+      };
+    case 'qwen':
+      return {
+        directory: at.root,
+        command: [at.python, script('qwen.py'), '--model', at.weights, ...listen],
+        environment,
+        vram: options.requiredVram ?? 6000,
+      };
+    case 'irodori':
+      return {
+        directory: at.code,
+        command: [
+          at.python,
+          script('irodori.py'),
+          '--checkpoint',
+          join(at.weights, 'model.safetensors'),
+        ].concat(['--codec', join(at.weights, 'codec.pth')], listen),
+        environment: withCode,
+        vram: options.requiredVram ?? 6000,
+      };
+    case 'ming':
+      return {
+        directory: at.code,
+        command: [at.python, script('ming.py'), '--model', at.weights, ...listen],
+        environment: withCode,
+        vram: options.requiredVram ?? 4500,
+      };
+    case 'ming-tiny':
+      return {
+        directory: at.code,
+        command: [at.python, script('mingtiny.py'), '--model', at.weights].concat(
+          ['--bits', String(options.bits ?? 8)],
+          listen,
+        ),
+        environment: {
+          ...environment,
+          // tiny pins x-transformers apart from the shared venv, so its own packages go first.
+          PYTHONPATH: `${at.packages}:${at.code}`,
+          // requiredVram was measured with this allocator setting.
+          PYTORCH_CUDA_ALLOC_CONF: 'expandable_segments:True',
+        },
+        vram: options.requiredVram ?? 11500,
+      };
+  }
+}
+
+function engines(tts: Tts, models: string, cuda: string): Record<string, Engine> {
   const environment = {
     LD_LIBRARY_PATH: cuda,
     // NixOS has no /sbin/ldconfig; Triton finds libcuda through this or Qwen's first synthesis fails.
@@ -106,77 +102,8 @@ function engines(tts: NonNullable<HostConfig['tts']>, cuda: string): Record<stri
     HF_HUB_OFFLINE: '1',
     TOKENIZERS_PARALLELISM: 'false',
   };
-  const listen = ['--port', String(port.engine)];
-  const found: Record<string, Engine> = {
-    breeze: {
-      directory: tts.directory,
-      command: [
-        python(tts.directory),
-        '-m',
-        'breeze_infer.api',
-        tts.modelDirectory,
-        '--host',
-      ].concat(['127.0.0.1'], listen),
-      environment,
-      vram: tts.requiredVram ?? 9000,
-    },
-  };
-  const { qwen, irodori, ming, mingTiny } = tts;
-  if (qwen)
-    found.qwen = {
-      directory: qwen.directory,
-      command: [
-        python(qwen.directory),
-        script('qwen.py'),
-        '--model',
-        qwen.modelDirectory,
-        ...listen,
-      ],
-      environment,
-      vram: qwen.requiredVram ?? 6000,
-    };
-  if (irodori)
-    found.irodori = {
-      directory: irodori.directory,
-      command: [python(irodori.directory), script('irodori.py'), '--checkpoint'].concat(
-        [irodori.checkpoint ?? 'Aratako/Irodori-TTS-v4.1-Small'],
-        listen,
-      ),
-      environment: { ...environment, PYTHONPATH: irodori.directory },
-      vram: irodori.requiredVram ?? 6000,
-    };
-  if (ming)
-    found.ming = {
-      directory: ming.directory,
-      command: [
-        python(ming.directory),
-        script('ming.py'),
-        '--model',
-        ming.modelDirectory,
-        ...listen,
-      ],
-      environment: { ...environment, PYTHONPATH: ming.directory },
-      vram: ming.requiredVram ?? 4500,
-    };
-  if (mingTiny)
-    found['ming-tiny'] = {
-      directory: mingTiny.directory,
-      command: [
-        python(mingTiny.directory),
-        script('mingtiny.py'),
-        '--model',
-        mingTiny.modelDirectory,
-      ].concat(['--bits', String(mingTiny.bits ?? 8)], listen),
-      environment: {
-        ...environment,
-        // tiny pins x-transformers apart from the shared venv, so its own packages go first.
-        PYTHONPATH: `${mingTiny.packages}:${mingTiny.directory}`,
-        // requiredVram was measured with this allocator setting.
-        PYTORCH_CUDA_ALLOC_CONF: 'expandable_segments:True',
-      },
-      vram: mingTiny.requiredVram ?? 11500,
-    };
-  return found;
+  const names = Object.keys(tts.engines) as Name[];
+  return Object.fromEntries(names.map((name) => [name, engine(name, models, tts, environment)]));
 }
 
 const defaultRoutes = {
@@ -185,8 +112,8 @@ const defaultRoutes = {
 };
 
 /** Routes keep only engines this host has, so a host without Irodori still starts its gate. */
-function gateConfig(tts: NonNullable<HostConfig['tts']>, cuda: string): string {
-  const found = engines(tts, cuda);
+function gateConfig(tts: Tts, models: string, cuda: string): string {
+  const found = engines(tts, models, cuda);
   const routes = Object.fromEntries(
     Object.entries(tts.routes ?? defaultRoutes).map(([use, byLanguage]) => [
       use,
@@ -236,12 +163,14 @@ interface Plan {
 }
 
 function services(config: HostConfig, places: Places, bun: string, plan: Plan): void {
-  if (!config.tts && !config.comfyui?.directory && !config.web) return;
+  const serveComfy = config.comfyui?.serve === true;
+  if (!config.tts && !serveComfy && !config.web) return;
+  const models = modelRoot(config, places);
   const cuda = config.cudaLibraryPath ?? '/run/opengl-driver/lib';
   const idle = config.idleTime ?? '30min';
   const proxyd = resolve(dirname(tool('systemctl')), '../lib/systemd/systemd-socket-proxyd');
   const needs = ['nvidia-smi', 'systemctl', 'ss', ...(config.tts ? ['sox'] : [])];
-  if (config.comfyui?.directory) needs.push('tailscale');
+  if (serveComfy) needs.push('tailscale');
   const path = [...new Set(needs.map((name) => dirname(tool(name))).concat(dirname(bun)))].join(
     ':',
   );
@@ -292,8 +221,7 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
       },
     });
 
-  const comfy = config.comfyui?.directory;
-  if (comfy) {
+  if (serveComfy) {
     plan.files.set(
       at('comfyui.socket'),
       socket('Socket that starts ComfyUI on the first request', port.comfyFront),
@@ -306,8 +234,8 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
       at('comfyui-backend.service'),
       backend(
         'ComfyUI diffusion server',
-        comfy,
-        [`PORT=${port.comfyBack}`, `COMFYUI_DIR=${comfy}`, `CUDA_LIB=${cuda}`],
+        paths(models, 'comfyui').code,
+        [`PORT=${port.comfyBack}`, `MODELS=${models}`, `CUDA_LIB=${cuda}`],
         run('backend.ts', 'start'),
       ),
     );
@@ -315,7 +243,7 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
   }
   if (config.tts) {
     const gate = join(places.state, 'gate.json');
-    plan.files.set(gate, gateConfig(config.tts, cuda));
+    plan.files.set(gate, gateConfig(config.tts, models, cuda));
     plan.files.set(
       at('tts.socket'),
       socket('Socket that starts the speech gate on the first request', port.ttsFront),
@@ -328,7 +256,7 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
       at('tts-backend.service'),
       backend(
         'Speech gate that runs one model at a time',
-        config.tts.directory,
+        models,
         [`PORT=${port.ttsBack}`, `GATE_CONFIG=${gate}`],
         run('gate.ts'),
         { TimeoutStartSec: 300 },
