@@ -66,7 +66,7 @@ export const manifest: Record<Name, Component> = {
       },
       {
         repository: 'unsloth/FLUX.2-klein-9B-GGUF',
-        revision: '6db9b2d0479c98795589c94c9beef5cc818c6966',
+        revision: 'fde8634245fe6b749a221c25b34672b5b8fbd079',
         files: comfyModels('flux-2-klein-9b-Q8_0.gguf', 'unet/'),
       },
       {
