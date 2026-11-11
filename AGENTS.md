@@ -170,7 +170,7 @@ bun run build   # 前端构建到 web/dist；开发时 cd web && bunx vite，/ap
 - 改钉住的版本（提交、lock、权重 revision）后，要在模型主机上实跑对应的命令才算验证过；lock 用
   `uv pip freeze` 从验证过的 venv 导出，不手写。
 - 目标文件只放校验过的下载：先写 `.part` 续传，哈希对上才改名。`bun run verify` 重算全部哈希。
-- 权重按大小判断已有，不每次重算几十 GB 的哈希。下载地址走 `HF_ENDPOINT`，在新加坡时设 hf-mirror 更快。
+- 权重按大小判断已有，不每次重算几十 GB 的哈希。下载地址走 `HF_ENDPOINT`，源和代理路径按模型主机实测选择，不从用户或 VPS 所在地推断。
 - ComfyUI 用 `--base-directory`：`code/` 是纯净的上游检出，`data/` 放模型、自定义节点、输入输出和用户数据，换版本不动数据。
 - 检出有本地改动时 install 报错停下，不覆盖。
 
