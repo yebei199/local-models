@@ -1,17 +1,18 @@
 ---
 name: model-weights
-description: Download model weights onto the model host from inside China. Load before fetching Hugging Face weights or trying a new local model.
+description: Download model weights onto the model host, picking the source by where the hosts currently are (mirrors win in Singapore). Load before fetching Hugging Face weights or trying a new local model.
 ---
 
 # model-weights
 
 local-models 的命令用到的权重不手工下载：写进那个仓库的 `src/manifest.ts`（仓库加 revision），
-`bun run setup` 会下载并核对哈希，下载地址走 `HF_ENDPOINT`，模型主机上设 `https://hf-mirror.com` 并绕过代理。
-下面的手工下载只用于试新模型。
+`bun run setup` 会下载并核对哈希，下载地址走 `HF_ENDPOINT`。下面的手工下载只用于试新模型。
 
-先走 ModelScope，在模型主机上直连下载，不经代理，也不经其他主机中转。
+主机跟着用户走，哪个源最快取决于当时在哪里。用户在新加坡时镜像站更快：先走 ModelScope，其次 hf-mirror
+（`HF_ENDPOINT=https://hf-mirror.com`），都在模型主机上直连，不经代理，也不经其他主机中转。不在新加坡时
+下面的数字不适用，先在模型主机上用 Hugging Face 直连试几秒、看网卡收包速率，再决定用哪个源。
 
-| 来源（2026-11-07 实测） | 速度 |
+| 来源（2026-11-07，新加坡实测） | 速度 |
 |---|---|
 | ModelScope，模型主机直连 | 40 MB/s |
 | ModelScope，其他主机直连 | 9 MB/s |

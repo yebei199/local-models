@@ -65,7 +65,7 @@ models/
   ming-tiny/  packages/  weights/        # 代码和 venv 用 ming/ 的
 ```
 
-国内主机设 `HF_ENDPOINT=https://hf-mirror.com`，并让它绕过代理。重跑只补缺的文件；正在运行的组件会被跳过，
+在新加坡时设 `HF_ENDPOINT=https://hf-mirror.com` 更快，并让它绕过代理。重跑只补缺的文件；正在运行的组件会被跳过，
 空闲后再跑一次。怀疑权重损坏时 `bun run verify` 重算所有哈希，坏的重新下载。
 
 ComfyUI 侧栏里的工作流就是本仓库 `comfyui/workflows/` 的文件，在网页里保存会直接改动检出。
