@@ -80,6 +80,7 @@ skills/
 docs/
   tts-models.md         TTS 模型试听结论和当前选择
   music-models.md       音乐模型试听和测量记录，以及云端服务的调查
+  comfyui.md            浏览器里用 ComfyUI：节点、参数、五个工作流、自己搭图
 audition/
   index.html            音色对比页；清单和音频留在模型主机，不进仓库
 src/

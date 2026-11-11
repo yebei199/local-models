@@ -69,7 +69,8 @@ models/
 空闲后再跑一次。怀疑权重损坏时 `bun run verify` 重算所有哈希，坏的重新下载。
 
 ComfyUI 侧栏里的工作流就是本仓库 `comfyui/workflows/` 的文件，在网页里保存会直接改动检出。
-`src/workflows.json` 是命令用的 API 格式，`bun run check` 会发现它和界面格式不一致。
+`src/workflows.json` 是命令用的 API 格式，`bun run check` 会发现它和界面格式不一致。在浏览器里怎么用见
+[docs/comfyui.md](docs/comfyui.md)。
 
 ## 安装和更新
 
