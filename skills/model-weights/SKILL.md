@@ -5,6 +5,10 @@ description: Download model weights onto the model host from inside China. Load 
 
 # model-weights
 
+local-models 的命令用到的权重不手工下载：写进那个仓库的 `src/manifest.ts`（仓库加 revision），
+`bun run setup` 会下载并核对哈希，下载地址走 `HF_ENDPOINT`，模型主机上设 `https://hf-mirror.com` 并绕过代理。
+下面的手工下载只用于试新模型。
+
 先走 ModelScope，在模型主机上直连下载，不经代理，也不经其他主机中转。
 
 | 来源（2026-11-07 实测） | 速度 |

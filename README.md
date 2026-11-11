@@ -44,43 +44,36 @@ RTX 5080 上的实测：冷启动约 35 秒，之后实时率约 0.8。不需要
 
 ## 模型主机准备
 
-模型代码和权重不进仓库，放在 `config.json` 指定的目录：
+不用手工准备。`bun run setup` 先按 [`src/manifest.ts`](src/manifest.ts) 装这台主机要跑的组件，再写服务：
 
-```bash
-git clone https://github.com/breezeblue-ai/breeze-tts.git ~/projects/breeze-tts
-cd ~/projects/breeze-tts
-uv venv -p 3.12 .venv
-uv pip install -p .venv/bin/python -r requirements.txt
-hf download BreezeBlue/Breeze-TTS-2 --local-dir ~/projects/breeze-tts-2
+| 组件 | 代码 | Python | 权重 |
+|---|---|---|---|
+| `comfyui` | ComfyUI v0.45.0、ComfyUI-GGUF | 3.12，cu130 | Flux2 Klein 9B（GGUF）、MiniMax H3 |
+| `breeze` | breeze-tts | 3.12 | Breeze-TTS-2 |
+| `qwen` | 无，`qwen-tts` 包 | 3.12，cu130 | Qwen3-TTS 1.7B Base |
+| `irodori` | Irodori-TTS | 3.10，cu128 | Irodori-TTS v4.1 Small、Semantic-DACVAE |
+| `ming` | Ming-3.0-tts | 3.10，cu128 | Ming-3.0-tts 0.5B |
+| `ming-tiny` | 与 Ming 共用检出和 venv | 另装 x-transformers、fla-core | Ming-3.0-tts tiny |
+
+代码钉在提交上，venv 由 `uv pip sync` 照 `locks/` 里冻结的环境建，权重钉在 Hugging Face 仓库的提交上，
+下载支持续传，下完核对 sha256 才落盘。全部装在 `models` 目录下，每个组件一个子目录：
+
+```text
+models/
+  comfyui/  code/（上游检出） venv/  data/（models、custom_nodes、input、output、user）
+  breeze/   code/  venv/  weights/
+  ming-tiny/  packages/  weights/        # 代码和 venv 用 ming/ 的
 ```
 
-测试过的上游提交是 `daa6cb2`。
+国内主机设 `HF_ENDPOINT=https://hf-mirror.com`，并让它绕过代理。重跑只补缺的文件；正在运行的组件会被跳过，
+空闲后再跑一次。怀疑权重损坏时 `bun run verify` 重算所有哈希，坏的重新下载。
 
-Ming、Irodori 和 Qwen3-TTS 可选。Ming 提供 `video` 路由，Irodori 提供日语路由，Qwen 只在 `routes` 指向它时使用：
-
-```bash
-uv venv -p 3.12 ~/projects/qwen3-tts/.venv
-uv pip install -p ~/projects/qwen3-tts/.venv/bin/python qwen-tts
-hf download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir ~/projects/qwen3-tts/weights/1.7B-Base
-
-git clone https://github.com/Aratako/Irodori-TTS.git ~/projects/irodori
-cd ~/projects/irodori && uv sync --extra cu128
-hf download Aratako/Irodori-TTS-v4.1-Small
-hf download Aratako/Semantic-DACVAE-Japanese-32dim
-```
-
-Ming tiny（`video` 的中文）和 Ming 共用检出和 `.venv`。它钉死的 `x-transformers` 与 0.5B 冲突，独有的包装进
-单独目录，由 `tts.mingTiny.packages` 放在 `PYTHONPATH` 前面。bf16 权重 18 GB，引擎加载时把专家流式量化成 int8，
-16 GB 显卡装得下：
-
-```bash
-uv pip install --target ~/projects/tts-eval/tiny-extra --no-deps x-transformers==2.7.4 fla-core==0.4.2
-uvx --from modelscope modelscope download --model inclusionAI/Ming-3.0-tts-tiny --local_dir ~/projects/tts-eval/ming-tiny-weights
-```
+ComfyUI 侧栏里的工作流就是本仓库 `comfyui/workflows/` 的文件，在网页里保存会直接改动检出。
+`src/workflows.json` 是命令用的 API 格式，`bun run check` 会发现它和界面格式不一致。
 
 ## 安装和更新
 
-不用 nix，直接用 bun 跑。主机上要有 bun、ffmpeg、ssh、systemctl；模型主机另要 nvidia-smi、ss、tailscale，
+不用 nix，直接用 bun 跑。主机上要有 bun、ffmpeg、ssh、systemctl；模型主机另要 nvidia-smi、ss、tailscale、git、uv、curl，
 跑 Breeze 还要 sox。setup 开头会检查，缺哪个就报哪个。
 
 每台主机克隆一份专门用来运行的检出，不和开发用的检出混用，改到一半的代码不会影响正在用的命令：
@@ -95,7 +88,7 @@ git clone https://github.com/yebei199/local-models.git ~/.local/share/local-mode
 cd ~/.local/share/local-models/src && git pull && bun run setup
 ```
 
-`setup` 先装依赖、构建网页前端，再按配置写出三样东西：`~/.config/systemd/user` 下的服务、
+`setup` 先装依赖、构建网页前端、装模型（见上一节），再按配置写出三样东西：`~/.config/systemd/user` 下的服务、
 `~/.local/state/local-models/gate.json`（网关配置）、`~/.local/bin` 下的命令。它只启动还没在跑的服务，
 从不重启或停止模型服务，正在跑的显卡任务不会被打断；定义变了的运行中服务只提示，空闲时自己重启。
 网页服务不占显卡，每次都会重启。不是 setup 写的同名文件它不覆盖，直接报错。
@@ -106,35 +99,28 @@ cd ~/.local/share/local-models/src && git pull && bun run setup
 { "host": "gpu-host", "comfyui": { "url": "https://gpu-host.example.ts.net:18088" } }
 ```
 
-模型主机按自己有的服务写对应的段，没写的服务不装。`host` 写本机名也算本机：
+模型主机按自己有的服务写对应的段，没写的服务不装。`comfyui.serve` 表示这台主机跑 ComfyUI，`tts.engines`
+列出要装的语音引擎。`host` 写本机名也算本机：
 
 ```json
 {
   "host": "gpu-host",
-  "comfyui": { "directory": "/home/me/projects/explore", "url": "https://gpu-host.example.ts.net:18088" },
+  "comfyui": { "url": "https://gpu-host.example.ts.net:18088", "serve": true },
   "web": {},
   "tts": {
-    "directory": "/home/me/projects/breeze-tts",
-    "modelDirectory": "/home/me/projects/breeze-tts-2",
     "voices": {
       "anki": { "en": { "path": "/home/me/voices/quiet_en.wav", "text": "参考音频的准确文字稿" } },
       "video": { "zh": { "path": "/home/me/voices/story_zh.wav", "text": "参考音频的准确文字稿" } }
     },
-    "qwen": { "directory": "/home/me/projects/qwen3-tts", "modelDirectory": "/home/me/projects/qwen3-tts/weights/1.7B-Base" },
-    "irodori": { "directory": "/home/me/projects/irodori" },
-    "ming": { "directory": "/home/me/projects/ming", "modelDirectory": "/home/me/projects/ming/weights" },
-    "mingTiny": {
-      "directory": "/home/me/projects/ming",
-      "packages": "/home/me/projects/tiny-extra",
-      "modelDirectory": "/home/me/projects/ming-tiny-weights"
-    }
+    "engines": { "breeze": {}, "qwen": {}, "irodori": {}, "ming": {}, "ming-tiny": { "bits": 8 } }
   }
 }
 ```
 
-可选项：`idleTime`（默认 `30min`）、`cudaLibraryPath`（默认 `/run/opengl-driver/lib`）、`web.directory`、
-`tts.routes`（默认见上面的路由表）、各引擎的 `requiredVram`（MiB，默认值写在 `src/setup.ts`，来自实测峰值）、
-`tts.mingTiny.bits`（4 或 8，默认 8）。
+可选项：`models`（安装目录，默认 `~/.local/share/local-models/models`）、`idleTime`（默认 `30min`）、
+`cudaLibraryPath`（默认 `/run/opengl-driver/lib`）、`web.directory`、`tts.routes`（默认见上面的路由表）、
+各引擎的 `requiredVram`（MiB，默认值写在 `src/setup.ts`，来自实测峰值）、`ming-tiny` 的 `bits`（4 或 8，默认 8）。
+旧版配置里的 `comfyui.directory`、`tts.directory` 等路径键已经去掉，留着会报错。
 
 ## 开发
 

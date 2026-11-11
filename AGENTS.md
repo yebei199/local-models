@@ -6,10 +6,11 @@
 推理只在一台模型主机上跑，其他机器用同样的命令远程调用。显存放不下所有模型，所以服务按需启动、
 空闲退出、互相避让。语音按用途和语言路由到不同模型，同一时间只有一个模型在显存里。
 
-本仓库含命令、语音网关、模型适配脚本、systemd 单元和测试。ComfyUI 和各语音模型的代码、权重在仓库外，
-由各主机的 `~/.config/local-models/config.json` 指向；ComfyUI 的环境安装、权重下载和工作流原件还在 explore 仓库（`setup_env.sh`、
-`download_models.sh`、`workflows/`），Breeze 靠 README 里的手工步骤。它于 2026-11 从 nixos_config 迁出，之后不再用 nix：每台主机克隆一份检出，`bun run setup` 按本机的 config.json
-装服务和命令。nixos_config 只引用 `skills/`。
+本仓库含命令、语音网关、模型适配脚本、systemd 单元、模型安装和测试。ComfyUI 和各语音模型装什么由本仓库钉死：
+`src/manifest.ts` 写上游代码的提交、`locks/` 写冻结的 Python 环境、权重写 Hugging Face 仓库的提交，`src/install.ts`
+按它装到 `models` 目录（默认 `~/.local/share/local-models/models`）。上游源码和权重本身不进仓库，只进钉住的版本。
+它于 2026-11 从 nixos_config 迁出，之后不再用 nix：每台主机克隆一份检出，`bun run setup` 按本机的 config.json
+装模型、服务和命令。nixos_config 只引用 `skills/`；explore 仓库不再参与部署。
 
 命令用法、模型主机准备和安装配置见 [README.md](README.md)，这里不重复。TTS 模型试听结论见 [docs/tts-models.md](docs/tts-models.md)，音乐模型的见 [docs/music-models.md](docs/music-models.md)（音乐不进本仓库的命令，只在 pc3 上试跑）。
 
@@ -65,7 +66,10 @@ scene-narrate、scene-show         在调用方本机运行，只用 ffmpeg 和 
 ## 文件架构
 
 ```text
-package.json            依赖和脚本：check、build、setup
+package.json            依赖和脚本：check、build、setup（install.ts 再 setup.ts）、verify
+locks/                  各组件 venv 的 uv pip freeze，在模型主机上验证过的环境
+comfyui/
+  workflows/            界面格式工作流，是真源；install 把 ComfyUI 侧栏的工作流目录链接到这里，biome 不格式化它
 engines/
   common.py             Breeze 协议的 HTTP 服务，只用标准库和 numpy
   qwen.py、irodori.py、ming.py  各模型的加载和合成，跑在模型自己的 .venv 里
@@ -84,10 +88,13 @@ src/
   gate.ts               model-gate：路由、串行队列、模型启停
   wav.ts                给模型返回的裸 PCM 加 WAV 头
   scene.ts              scene-image、scene-video：提交 ComfyUI 工作流、取回产物、释放权重
-  workflows.json        冻结的 image（Flux2 Klein GGUF）、video（MiniMax H3）节点图及风格前缀
+  workflows.json        冻结的 image（Flux2 Klein GGUF）、video（MiniMax H3）节点图及风格前缀，由 klein_t2i、h3_i2v 导出
   narrate.ts            scene-narrate：用 ffmpeg 拼环境声、整句、单词旁白
   show.ts               scene-show：开 mpv 窗口，只关自己记录过的进程组
   backend.ts            单元用的 start（启动 ComfyUI）、wait（等端口）、vram（显存守卫）
+  config.ts             config.json 的类型、校验和路径，install 和 setup 共用；旧的路径键按名字报错
+  manifest.ts           每个组件钉住的代码、环境、权重，以及它们在 models 下的位置（paths）
+  install.ts            按 manifest 检出代码、同步 venv、下载并校验权重；跳过后端正在运行的组件
   setup.ts              读 config.json，写出 systemd 单元、网关配置 gate.json 和 ~/.local/bin 下的命令
   web.ts                model-web：托管前端构建产物和 /api，发布页面目录、读机器状态、支持 Range
   audition.ts           audition.json 和 /api 的类型，服务端和前端共用
@@ -102,7 +109,7 @@ tests/
 
 `setup.ts` 的入口映射：命令 `scene-image`、`scene-video` 都是 `scene.ts`；单元直接用 bun 跑
 `backend.ts start`、`backend.ts wait`、`gate.ts`、`web.ts`，这些不进用户 PATH。各模型的启动命令也由 `setup.ts`
-写进网关配置 `GATE_CONFIG`，主机只在 config.json 里给路径。
+写进网关配置 `GATE_CONFIG`，路径全由 `manifest.ts` 的 `paths` 推出，config.json 只列这台主机跑哪些引擎。
 
 ## 验证
 
@@ -155,11 +162,24 @@ bun run build   # 前端构建到 web/dist；开发时 cd web && bunx vite，/ap
 - 视频帧数必须满足 `17k+5` 且不超过 209，这是 H3 解码的限制。
 - seed 是任意精度整数，经 `JSON.rawJSON` 发送，不要转成 `Number`。
 
+**安装**
+
+- 不碰正在运行的组件：`comfyui-backend` 或 `tts-backend` 在跑时，`install` 跳过对应组件，空闲后重跑 setup。
+  在运行中的进程下面换代码或 venv，跑着的任务会断。
+- 改钉住的版本（提交、lock、权重 revision）后，要在模型主机上实跑对应的命令才算验证过；lock 用
+  `uv pip freeze` 从验证过的 venv 导出，不手写。
+- 目标文件只放校验过的下载：先写 `.part` 续传，哈希对上才改名。`bun run verify` 重算全部哈希。
+- 权重按大小判断已有，不每次重算几十 GB 的哈希。下载地址走 `HF_ENDPOINT`，国内主机设 hf-mirror。
+- ComfyUI 用 `--base-directory`：`code/` 是纯净的上游检出，`data/` 放模型、自定义节点、输入输出和用户数据，换版本不动数据。
+- 检出有本地改动时 install 报错停下，不覆盖。
+
 **工作流**
 
 - `workflows.json` 是冻结数据，只由 `scene.ts` 的 `workflow` 改写固定节点：`10` 的 seed；image 的
   `4`、`6`、`7`；video 的 `6`，以及带首帧时注入的 `5`。
   改图时节点 id 要同步。
+- `comfyui/workflows/` 的界面格式是真源，`tests/workflows.test.ts` 检查 `workflows.json` 和它的节点、连线、固定参数一致。
+  改了界面格式就在浏览器里重新导出 API 格式，再按上面的规则改回 `workflows.json`。
 
 **许可与内容**
 
@@ -184,6 +204,6 @@ bun run build   # 前端构建到 web/dist；开发时 cd web && bunx vite，/ap
 - bun 和外部程序用主机上装好的，版本不由仓库锁定；靠 `bun run check` 发现差异。
 - biome 把警告当错误，认知复杂度上限 15，行宽 100。
 - 每个 `src` 文件首行用一句话写用途，函数的 `/** */` 写为什么这样做，不复述代码。TS 注释用英文。
-- 外部程序都以子进程调用，测试才能在 PATH 上替换。服务端新用到的外部程序要加进 `setup.ts` 的前置检查，
+- 外部程序都以子进程调用，测试才能在 PATH 上替换。服务端新用到的外部程序要加进 `setup.ts`（安装用的加进 `install.ts`）的前置检查，
   它也决定单元的 PATH。
 - 具体主机的值（主机名、目录、参考音频）在各主机的 config.json，不进本仓库。
