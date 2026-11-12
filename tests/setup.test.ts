@@ -134,6 +134,58 @@ describe('model host', () => {
   });
 });
 
+describe('translation', () => {
+  const translating = {
+    ...modelHost,
+    translate: { url: 'https://pc3.example:18098', serve: true },
+  };
+
+  test('a socket in the tailnet range fronts the gate on its own port', async () => {
+    const h = host();
+    expect((await h.run(translating)).status).toBe(0);
+    expect(h.file(`${units}/translate.socket`)).toContain('ListenStream=127.0.0.1:8098');
+    const front = h.file(`${units}/translate.service`);
+    expect(front).toContain('Requires=tts-backend.service');
+    expect(front).toContain('--exit-idle-time=30min 127.0.0.1:8293');
+    expect(h.file(`${units}/tts-backend.service`)).toContain('TRANSLATE_PORT=8293');
+    expect(readFileSync(h.log, 'utf8')).toContain('translate.socket');
+  });
+
+  test('the gate runs the pinned llama-server on the shared engine port', async () => {
+    const h = host();
+    await h.run(translating);
+    const gate = JSON.parse(h.file('.local/state/local-models/gate.json'));
+    expect(gate.translator).toBe('translator');
+    const { command, environment, vram } = gate.engines.translator;
+    expect(command.slice(0, 3)).toEqual([
+      '/srv/models/translator/code/llama-server',
+      '-m',
+      '/srv/models/translator/weights/model.gguf',
+    ]);
+    expect(command.join(' ')).toContain('--port 8292');
+    expect(environment.LD_LIBRARY_PATH).toBe('/srv/models/translator/code:/run/opengl-driver/lib');
+    expect(vram).toBe(10500);
+  });
+
+  test('a host that only translates still gets the gate, without speech routes', async () => {
+    const h = host();
+    expect((await h.run({ translate: { serve: true } })).status).toBe(0);
+    const gate = JSON.parse(h.file('.local/state/local-models/gate.json'));
+    expect(Object.keys(gate.engines)).toEqual(['translator']);
+    expect(gate.routes).toEqual({});
+  });
+
+  test('the command carries the tailnet URL', async () => {
+    const h = host();
+    await h.run({ host: 'pc3', translate: { url: 'https://pc3.example:18098' } });
+    expect(h.file('.local/bin/translate')).toContain(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: shell expansion, not a template
+      'export TRANSLATE_URL="${TRANSLATE_URL-https://pc3.example:18098}"',
+    );
+    expect(existsSync(join(h.home, units, 'translate.socket'))).toBe(false);
+  });
+});
+
 describe('commands', () => {
   test('carry the model host as a default the caller can override', async () => {
     const h = host();

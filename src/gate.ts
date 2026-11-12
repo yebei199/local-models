@@ -1,7 +1,8 @@
-// Route speech requests to the right model, keeping only one on the GPU at a time.
+// Route speech and translation requests to the right model, keeping only one on the GPU at a time.
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { requireVram } from './backend.ts';
+import { libre } from './libre.ts';
 
 /** A cold start costs about 35 seconds on Breeze; anything past this is a hung load. */
 const START_TIMEOUT = 300_000;
@@ -13,7 +14,8 @@ interface Voice {
   text: string;
 }
 
-/** How to run one model; every engine answers the Breeze speech contract on `enginePort`. */
+/** How to run one model on `enginePort`: speech engines answer the Breeze speech contract, the
+ * translator answers OpenAI chat completions. */
 interface Engine {
   command: string[];
   directory: string;
@@ -32,6 +34,8 @@ interface Config {
   voices: Record<string, Record<string, Voice>>;
   routes: Record<string, Record<string, string>>;
   engines: Record<string, Engine>;
+  /** The engine behind the translation port, if this host translates. */
+  translator?: string;
 }
 
 /** A parsed request body; Bun and the DOM type FormData differently. */
@@ -59,6 +63,8 @@ function loadConfig(path: string): Config {
       if (!config.engines[engine]) throw new Error(`gate: route names unknown engine ${engine}`);
       if (!config.voices[use]?.[language]) throw new Error(`gate: no voice for ${use}/${language}`);
     }
+  if (config.translator && !config.engines[config.translator])
+    throw new Error(`gate: unknown translator ${config.translator}`);
   return config;
 }
 
@@ -70,17 +76,17 @@ async function terminate(process: Bun.Subprocess): Promise<void> {
   clearTimeout(timer);
 }
 
-/** Any HTTP answer means the model finished loading, because it binds only after that. */
+/** The speech engines bind only after loading, so any answer means ready; llama-server binds
+ * first and answers 503 on /health until its weights are on the card. */
 async function ready(port: number, process: Bun.Subprocess): Promise<void> {
   const deadline = Date.now() + START_TIMEOUT;
   while (Date.now() < deadline) {
     if (process.exitCode !== null) throw new Error(`engine exited with ${process.exitCode}`);
-    try {
-      await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) });
-      return;
-    } catch {
-      await Bun.sleep(200);
-    }
+    const answer = await fetch(`http://127.0.0.1:${port}/health`, {
+      signal: AbortSignal.timeout(1000),
+    }).catch(() => undefined);
+    if (answer && answer.status !== 503) return;
+    await Bun.sleep(200);
   }
   throw new Error('engine did not start in time');
 }
@@ -142,8 +148,7 @@ function gate(config: Config) {
     }
   }
 
-  async function synthesize(name: string, body: FormData): Promise<Response> {
-    await activate(name);
+  async function synthesize(body: FormData): Promise<Response> {
     const response = await fetch(`http://127.0.0.1:${config.enginePort}/v1/audio/speech`, {
       method: 'POST',
       body,
@@ -155,13 +160,40 @@ function gate(config: Config) {
   }
 
   /** Requests wait their turn here, so callers never see the single-GPU limit. */
-  function enqueue(name: string, body: FormData): Promise<Response> {
-    const result = queue.then(() => synthesize(name, body));
+  function enqueue<T>(name: string, job: () => Promise<T>): Promise<T> {
+    const result = queue.then(async () => {
+      await activate(name);
+      return job();
+    });
     queue = result.catch(() => {});
     return result;
   }
 
-  async function handle(request: Request): Promise<Response> {
+  /** One queue turn for a whole batch: the segments run together, and llama-server spreads them
+   * over its parallel slots. */
+  function complete(name: string, bodies: object[]): Promise<string[]> {
+    return enqueue(name, () =>
+      Promise.all(
+        bodies.map(async (body) => {
+          const response = await fetch(
+            `http://127.0.0.1:${config.enginePort}/v1/chat/completions`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            },
+          );
+          if (!response.ok) throw new Error(`translator: ${await response.text()}`);
+          const answer = (await response.json()) as {
+            choices: { message: { content: string } }[];
+          };
+          return answer.choices[0]?.message.content ?? '';
+        }),
+      ),
+    );
+  }
+
+  async function speech(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (request.method === 'GET' && path === '/v1/routes') return Response.json(config.routes);
     if (request.method !== 'POST' || path !== '/v1/audio/speech')
@@ -173,21 +205,34 @@ function gate(config: Config) {
     if (!name) return new Response(`no route for ${use}/${language}`, { status: 400 });
     try {
       const voice = config.voices[use]?.[language] as Voice;
-      return await enqueue(name, engineForm(form, voice, language));
+      const body = engineForm(form, voice, language);
+      return await enqueue(name, () => synthesize(body));
     } catch (error) {
       return new Response(String(error), { status: 503 });
     }
   }
 
-  return { handle, stop };
+  const translator = config.translator;
+  const translate = translator ? libre((bodies) => complete(translator, bodies)).handle : undefined;
+  return { speech, translate, stop };
 }
 
 if (import.meta.main) {
   const path = process.env.GATE_CONFIG;
   const port = process.env.PORT;
   if (!path || !port) throw new Error('gate: GATE_CONFIG and PORT must be supplied');
-  const { handle, stop } = gate(loadConfig(path));
-  Bun.serve({ hostname: '127.0.0.1', port: Number(port), idleTimeout: 0, fetch: handle });
+  const { speech, translate, stop } = gate(loadConfig(path));
+  Bun.serve({ hostname: '127.0.0.1', port: Number(port), idleTimeout: 0, fetch: speech });
+  // Translation has its own port because only it is published on the tailnet; speech stays on
+  // loopback behind ssh.
+  const translatePort = process.env.TRANSLATE_PORT;
+  if (translate && translatePort)
+    Bun.serve({
+      hostname: '127.0.0.1',
+      port: Number(translatePort),
+      idleTimeout: 0,
+      fetch: translate,
+    });
   for (const signal of ['SIGTERM', 'SIGINT'] as const)
     process.on(signal, () => {
       stop().finally(() => process.exit(0));

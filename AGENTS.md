@@ -2,7 +2,7 @@
 
 ## 项目目的
 
-把一张消费级 GPU 上的语音合成、生图和生视频做成普通命令行工具，主要服务个人 Anki 制卡，也给公开视频配音。
+把一张消费级 GPU 上的语音合成、翻译、生图和生视频做成普通命令行工具，主要服务个人 Anki 制卡，也给公开视频配音。
 推理只在一台模型主机上跑，其他机器用同样的命令远程调用。显存放不下所有模型，所以服务按需启动、
 空闲退出、互相避让。语音按用途和语言路由到不同模型，同一时间只有一个模型在显存里。
 
@@ -12,7 +12,7 @@
 它于 2026-11 从 nixos_config 迁出，之后不再用 nix：每台主机克隆一份检出，`bun run setup` 按本机的 config.json
 装模型、服务和命令。nixos_config 只引用 `skills/`；explore 仓库不再参与部署。
 
-命令用法、模型主机准备和安装配置见 [README.md](README.md)，这里不重复。TTS 模型试听结论见 [docs/tts-models.md](docs/tts-models.md)，音乐模型的见 [docs/music-models.md](docs/music-models.md)（音乐不进本仓库的命令，只在 pc3 上试跑）。
+命令用法、模型主机准备和安装配置见 [README.md](README.md)，这里不重复。TTS 模型试听结论见 [docs/tts-models.md](docs/tts-models.md)，翻译模型的见 [docs/translation-models.md](docs/translation-models.md)，音乐模型的见 [docs/music-models.md](docs/music-models.md)（音乐不进本仓库的命令，只在 pc3 上试跑）。
 
 ## 使用场景
 
@@ -22,6 +22,7 @@
 |---|---|---|
 | Anki 制卡 | 一种语言连续做几十分钟（比如先英文，再日语），期间不快速换语言。卡片一张一张做，每张之间隔 2 到 10 分钟，用来和 AI 讨论这张卡 | 模型要撑过卡片之间的间隔；换语言时冷切换一次可以接受 |
 | 公开视频口播 | 写好整篇稿子，一次性批量生成多句 | `tts batch` 整批完成；不需要实时或流式 |
+| 翻译 | 截图 OCR 出的短文本在各主机的 Dialect 里翻译，量大；偶尔整篇文档或字幕用 `translate` | 优先质量；和语音模型轮流占显存，切换代价可以接受 |
 | 生图 | 平时用 Codex 生图，没额度时才用本地模型 | 备用路径，保持可用即可，不为它常驻显存 |
 | 生视频 | 很少用，暂无明确用途 | 保留现有功能，不扩展也不删除 |
 
@@ -35,8 +36,11 @@
 任意主机                          模型主机（systemd --user）
 tts ── ssh -L unix socket ──────► tts.socket 127.0.0.1:8290
                                     └ tts.service（socket-proxyd）
-                                        └ tts-backend.service :8291（model-gate）
-                                            └ 当前模型 :8292（Breeze、Ming、Irodori 或 Qwen）
+                                        └ tts-backend.service :8291（model-gate，语音）
+Dialect、translate ── tailnet HTTPS :18098 ► Caddy ► translate.socket 127.0.0.1:8098
+                                    └ translate.service（socket-proxyd）
+                                        └ 同一个 tts-backend.service :8293（model-gate，LibreTranslate 接口）
+                                            └ 当前模型 :8292（Breeze、Ming、Irodori、Qwen 或 llama-server）
 
 scene-image/video ─── HTTP(S) ► comfyui.socket 127.0.0.1:8088
   │                                 └ comfyui.service（socket-proxyd）
@@ -53,6 +57,11 @@ scene-narrate、scene-show         在调用方本机运行，只用 ffmpeg 和 
 - 空闲 `idleTime` 后 proxyd 退出，backend 随 `StopWhenUnneeded` 停止，显存归还。
 - model-gate 按 `use` 和 `language` 选模型，串行处理请求；换模型时先停旧的，查过显存再启动新的。
   网关退出时带走模型，所以空闲回收和 `scene-*` 的避让都只需要停 `tts-backend.service`。
+- 翻译和语音共用这个网关和队列：翻译模型放不进语音模型旁边，轮流是唯一不杀任务的做法。单元名仍叫 `tts-*`，
+  改名要在模型主机上手动停旧单元，代价大于收益。两个前端各有空闲计时，都退出后网关才停。
+- 翻译接口单独一个端口（8293，前端 8098）：只有它经 Caddy 进 tailnet，语音端口仍只在回环、走 ssh。
+  接口照 LibreTranslate 的形状（`/translate`、`/languages`、`/detect`、`/spec`、`/frontend/settings`），
+  因为客户端是 Dialect，只能填实例地址。tailnet 内不鉴权，和 ComfyUI、试听页一样。
 - 所有模型都讲 Breeze 的协议：multipart 的 `text`、`ref_text`、`ref_audio`，返回裸 PCM 和
   `X-Sample-Rate`。`engines/` 把 Qwen、Irodori 和 Ming 包成这个协议，网关才不用区分模型。
 - 固定音色在模型主机上，按 `use` 和 `language` 各配一条同语言参考，由网关补进请求，调用方不必携带音频。
@@ -73,12 +82,14 @@ comfyui/
 engines/
   common.py             Breeze 协议的 HTTP 服务，只用标准库和 numpy
   qwen.py、irodori.py、ming.py  各模型的加载和合成，跑在模型自己的 .venv 里
+                        翻译模型不在这里：llama-server 本身讲 OpenAI chat 协议，网关直接调用
   mingtiny.py           Ming tiny：专家权重流式量化到 int8；文件名不能叫 ming_tiny.py，会遮住上游同名包
 skills/
   local-models/SKILL.md 给 AI 用的命令说明，由 nixos_config 链接安装；改命令或路由时同步更新
   model-weights/SKILL.md 权重下载来源的实测结论和核对方法，同样由 nixos_config 安装
 docs/
   tts-models.md         TTS 模型试听结论和当前选择
+  translation-models.md 翻译模型的对比、实测和当前选择
   music-models.md       音乐模型试听和测量记录，以及云端服务的调查
   comfyui.md            浏览器里用 ComfyUI：节点、参数、五个工作流、自己搭图
 audition/
@@ -86,7 +97,9 @@ audition/
 src/
   host.ts               isLocal：本机与 ssh 的唯一判定
   tts.ts                tts 命令：连接网关、synth 和 batch，batch 按模型分组
-  gate.ts               model-gate：路由、串行队列、模型启停
+  gate.ts               model-gate：路由、串行队列、模型启停；语音和翻译各一个端口
+  libre.ts              网关的 LibreTranslate 接口：校验、语言检测、Hy-MT2 的提示词
+  translate.ts          translate 命令：文本、文档按段、字幕按条，整篇译完才写文件
   wav.ts                给模型返回的裸 PCM 加 WAV 头
   scene.ts              scene-image、scene-video：提交 ComfyUI 工作流、取回产物、释放权重
   workflows.json        冻结的 image（Flux2 Klein GGUF）、video（MiniMax H3）节点图及风格前缀，由 klein_t2i、h3_i2v 导出
@@ -108,7 +121,7 @@ tests/
   *.test.ts             与 src 入口一一对应；wav 和 host 经 tts、scene 覆盖
 ```
 
-`setup.ts` 的入口映射：命令 `scene-image`、`scene-video` 都是 `scene.ts`；单元直接用 bun 跑
+`setup.ts` 的入口映射：命令 `translate` 是 `translate.ts`；命令 `scene-image`、`scene-video` 都是 `scene.ts`；单元直接用 bun 跑
 `backend.ts start`、`backend.ts wait`、`gate.ts`、`web.ts`，这些不进用户 PATH。各模型的启动命令也由 `setup.ts`
 写进网关配置 `GATE_CONFIG`，路径全由 `manifest.ts` 的 `paths` 推出，config.json 只列这台主机跑哪些引擎。
 
@@ -144,6 +157,7 @@ bun run build   # 前端构建到 web/dist；开发时 cd web && bunx vite，/ap
 
 **端口**
 
+- 翻译前端 8098 有意落在段内，tailnet 入口是 18098，Dialect 填的就是它；网关的翻译端口 8293 在段外。
 - 新服务的回环端口要避开 3000-3099、5100-5199、7800-7899、8000-8199：这些段会被 tailnet-https
   自动暴露，对应的 +10000 端口也被它占用。TTS 的 8290/8291 就是因此选的。ComfyUI 的 8088 在段内，
   这是有意的，`url` 示例里的 18088 就是它的 tailnet 入口。web 的 8096 同理，入口是 18096。
@@ -161,6 +175,10 @@ bun run build   # 前端构建到 web/dist；开发时 cd web && bunx vite，/ap
 - 声音必须同时有音频和逐字一致的文字稿，只给一个是错误。
 - `--lang` 必填且不做自动检测：短词无法判断语言，猜错不报错，只会生成读错的音频。
 - 视频帧数必须满足 `17k+5` 且不超过 209，这是 H3 解码的限制。
+- 翻译的 `charLimit`（3000 字符）和 llama-server 每个槽的 8192 token 是一对：Dialect 按 charLimit 截断输入，
+  原文加译文要装进一个槽。改一个就要算另一个。`translate` 命令把长文按段落和行切到这个限度以内。
+- 翻译模型不要求 `--lang`：Hy-MT2 的提示词只写目标语言。`source=auto` 时的检测（有假名是日语，纯汉字是中文）
+  只用来回报 `detectedLanguage` 和选提示词的语言，猜错不影响译文。
 - seed 是任意精度整数，经 `JSON.rawJSON` 发送，不要转成 `Number`。
 
 **安装**
@@ -171,6 +189,8 @@ bun run build   # 前端构建到 web/dist；开发时 cd web && bunx vite，/ap
   `uv pip freeze` 从验证过的 venv 导出，不手写。
 - 目标文件只放校验过的下载：先写 `.part` 续传，哈希对上才改名。`bun run verify` 重算全部哈希。
 - 权重按大小判断已有，不每次重算几十 GB 的哈希。下载地址走 `HF_ENDPOINT`，源和代理路径按模型主机实测选择，不从用户或 VPS 所在地推断。
+- llama.cpp 用官方发布的 CUDA 13 预编译包（`manifest.ts` 的 `release`，钉 sha256），靠模型主机的 nix-ld 运行；
+  在 NixOS 上编译要 nvcc，主机上没有。包里自带 cudart 和 cuBLAS，驱动来自 `cudaLibraryPath`。
 - ComfyUI 用 `--base-directory`：`code/` 是纯净的上游检出，`data/` 放模型、自定义节点、输入输出和用户数据，换版本不动数据。
 - 检出有本地改动时 install 报错停下，不覆盖。
 

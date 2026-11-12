@@ -24,6 +24,8 @@ export interface HostConfig {
   cudaLibraryPath?: string;
   comfyui?: { url?: string; serve?: boolean };
   web?: { directory?: string };
+  /** `url` is the tailnet entry the `translate` command calls; `serve` runs the model here. */
+  translate?: { url?: string; serve?: boolean; requiredVram?: number };
   tts?: {
     voices: Record<string, Record<string, Voice>>;
     routes?: Record<string, Record<string, string>>;
@@ -101,7 +103,11 @@ export function read(path: string): HostConfig {
 /** The components this host serves, which is what install fetches and setup runs. */
 export function served(config: HostConfig): Name[] {
   const engines = Object.keys(config.tts?.engines ?? {}) as Engine[];
-  return [...(config.comfyui?.serve ? (['comfyui'] as const) : []), ...engines];
+  return [
+    ...(config.comfyui?.serve ? (['comfyui'] as const) : []),
+    ...engines,
+    ...(config.translate?.serve ? (['translator'] as const) : []),
+  ];
 }
 
 export const modelRoot = (config: HostConfig, where: Places) => config.models ?? where.models;

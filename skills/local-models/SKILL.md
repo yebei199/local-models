@@ -1,6 +1,6 @@
 ---
 name: local-models
-description: Generate speech, images or video on the local GPU with the tts and scene-* commands. Load when making audio for Anki cards, voicing a video script, or generating images because Codex is out of quota.
+description: Generate speech, translations, images or video on the local GPU with the tts, translate and scene-* commands. Load when making audio for Anki cards, voicing a video script, translating zh/ja/en text, documents or subtitles locally, or generating images because Codex is out of quota.
 ---
 
 # local-models
@@ -44,6 +44,20 @@ tts batch --batch-file F.jsonl   # 每行 {"text","output","lang","use"}，可�
 |---|---|---|
 | `503` 和 `Only N MiB VRAM free` | 别的任务占着显卡 | 等它结束再试，不要停别人的任务 |
 | `400` 和 `no route` | 这台模型主机没配该模型 | 告诉用户，不要换一个 `--use` 绕过 |
+
+## 翻译
+
+```bash
+translate --to en|ja|zh [--from auto|en|ja|zh] "TEXT"   # 译文到标准输出；不给 TEXT 读标准输入
+translate --to zh -i IN.srt -o OUT.srt                  # 文档按段落、.srt/.vtt 按条，整篇译完才写文件
+```
+
+- 模型是 Hy-MT2-7B，只开放中日英三种语言。`--from` 默认 `auto`，不影响译文，提示词只写目标语言。
+- 和 TTS 共用显卡、轮流加载：翻译后第一句 `tts` 要重新冷启动，制卡时成批翻译、成批配音比交替快。
+- 单段超过 3000 字符会按行切；单行超过 3000 字符直接报错，先自己断句。
+- 字幕逐条翻译，条与条之间没有上下文，代词和省略可能译偏，公开发布前要人看。
+- 用户的 Dialect 走同一个接口（`https://模型主机:18098`，LibreTranslate 格式），报 `503 Only N MiB` 是 ComfyUI
+  占着卡，不要停它。
 
 ## 图和视频
 

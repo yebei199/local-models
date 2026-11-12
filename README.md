@@ -1,6 +1,6 @@
 # local-models
 
-一台 GPU 主机上的本地生图、生视频和语音命令。推理只在模型主机上跑，其他机器经 ssh 调用；
+一台 GPU 主机上的本地生图、生视频、语音和翻译命令。推理只在模型主机上跑，其他机器经 ssh 调用；
 服务按需启动，空闲退出，显存互相避让。
 
 | 命令 | 作用 |
@@ -11,6 +11,8 @@
 | `scene-video SCENE -o F [--image FRAME]` | ComfyUI 生视频 |
 | `scene-narrate VIDEO SENTENCE WORD OUT` | 给视频配「整句 → 半秒 → 单词」旁白 |
 | `scene-show FILE`、`scene-show --clear` | 开窗口看产物、关掉这些窗口 |
+| `translate --to L [--from L] TEXT` | 翻译一段文字，译文写到标准输出；不给 TEXT 时读标准输入 |
+| `translate --to L -i F -o F` | 翻译整篇文档（按段落）或字幕（`.srt`、`.vtt`，按条，保留编号和时间轴） |
 
 `--lang` 必填，取 `en`、`ja`、`zh`；`--use` 是 `anki`（默认）或 `video`，两者决定用哪个模型。语言不自动
 检测：`学校` 这样的短词无法判断，猜错不会报错，只会读错：
@@ -22,6 +24,16 @@
 
 音色默认用 `tts.voices` 里该用途、该语言的参考。`tts synth` 可加 `--voice WAV --voice-text 文字稿`（两个必须同时给，文字稿要与
 音频一字不差）临时替换，也可加 `--instruction`、`--seed`。选型结论见 [docs/tts-models.md](docs/tts-models.md)。
+
+## 翻译
+
+模型主机在 tailnet 上提供 LibreTranslate 兼容的接口，`https://模型主机:18098`，不鉴权。Dialect 选 LibreTranslate、
+填这个地址即可；`translate` 命令也走它。语言只有 `en`、`ja`、`zh`，`source` 可以是 `auto`。单条上限 3000 字符，
+长文用 `translate -i` 自动按段切开。
+
+模型是 Hy-MT2-7B（Q8_0 GGUF，Apache 2.0），由 llama.cpp 的 `llama-server` 运行，选型见
+[docs/translation-models.md](docs/translation-models.md)。它约占 10 GiB 显存，放不进语音模型旁边，所以和 TTS
+共用一个网关、轮流上卡：语音之后第一次翻译要等模型加载几秒，翻译之后第一句 TTS 要重新冷启动。
 
 ## 服务
 
@@ -54,6 +66,7 @@ RTX 5080 上的实测：冷启动约 35 秒，之后实时率约 0.8。不需要
 | `irodori` | Irodori-TTS | 3.10，cu128 | Irodori-TTS v4.1 Small、Semantic-DACVAE |
 | `ming` | Ming-3.0-tts | 3.10，cu128 | Ming-3.0-tts 0.5B |
 | `ming-tiny` | 与 Ming 共用检出和 venv | 另装 x-transformers、fla-core | Ming-3.0-tts tiny |
+| `translator` | llama.cpp b12317 CUDA 13 预编译包 | 无 | Hy-MT2-7B Q8_0 GGUF |
 
 代码钉在提交上，venv 由 `uv pip sync` 照 `locks/` 里冻结的环境建，权重钉在 Hugging Face 仓库的提交上，
 下载支持续传，下完核对 sha256 才落盘。全部装在 `models` 目录下，每个组件一个子目录：
@@ -95,20 +108,25 @@ cd ~/.local/share/local-models/src && git pull && bun run setup
 从不重启或停止模型服务，正在跑的显卡任务不会被打断；定义变了的运行中服务只提示，空闲时自己重启。
 网页服务不占显卡，每次都会重启。不是 setup 写的同名文件它不覆盖，直接报错。
 
-只调用命令的机器只写 `host` 和 ComfyUI 的地址：
+只调用命令的机器只写 `host`、ComfyUI 和翻译的地址：
 
 ```json
-{ "host": "gpu-host", "comfyui": { "url": "https://gpu-host.example.ts.net:18088" } }
+{
+  "host": "gpu-host",
+  "comfyui": { "url": "https://gpu-host.example.ts.net:18088" },
+  "translate": { "url": "https://gpu-host.example.ts.net:18098" }
+}
 ```
 
 模型主机按自己有的服务写对应的段，没写的服务不装。`comfyui.serve` 表示这台主机跑 ComfyUI，`tts.engines`
-列出要装的语音引擎。`host` 写本机名也算本机：
+列出要装的语音引擎，`translate.serve` 表示这台主机跑翻译模型。`host` 写本机名也算本机：
 
 ```json
 {
   "host": "gpu-host",
   "comfyui": { "url": "https://gpu-host.example.ts.net:18088", "serve": true },
   "web": {},
+  "translate": { "url": "https://gpu-host.example.ts.net:18098", "serve": true },
   "tts": {
     "voices": {
       "anki": { "en": { "path": "/home/me/voices/quiet_en.wav", "text": "参考音频的准确文字稿" } },
@@ -121,7 +139,7 @@ cd ~/.local/share/local-models/src && git pull && bun run setup
 
 可选项：`models`（安装目录，默认 `~/.local/share/local-models/models`）、`idleTime`（默认 `30min`）、
 `cudaLibraryPath`（默认 `/run/opengl-driver/lib`）、`web.directory`、`tts.routes`（默认见上面的路由表）、
-各引擎的 `requiredVram`（MiB，默认值写在 `src/setup.ts`，来自实测峰值）、`ming-tiny` 的 `bits`（4 或 8，默认 8）。
+各引擎和 `translate` 的 `requiredVram`（MiB，默认值写在 `src/setup.ts`，来自实测峰值）、`ming-tiny` 的 `bits`（4 或 8，默认 8）。
 旧版配置里的 `comfyui.directory`、`tts.directory` 等路径键已经去掉，留着会报错。
 
 ## 开发
@@ -137,5 +155,5 @@ bun run build   # 前端构建到 web/dist；cd web && bunx vite 开发，/api �
 
 ## 许可
 
-本仓库代码是 GPL-3.0。Breeze-TTS-2 的代码是 Apache 2.0，**权重和生成的音频仅限研究和非商业用途**，
+本仓库代码是 GPL-3.0。Hy-MT2 的权重是 Apache 2.0，llama.cpp 是 MIT。Breeze-TTS-2 的代码是 Apache 2.0，**权重和生成的音频仅限研究和非商业用途**，
 本仓库不含权重。

@@ -15,8 +15,16 @@ export interface Weights {
   files: Record<string, string>;
 }
 
+/** A prebuilt release archive, unpacked into the component's `code/` without its top directory. */
+export interface Release {
+  url: string;
+  sha256: string;
+}
+
 export interface Component {
   code?: Checkout;
+  /** Prebuilt binaries instead of a checkout, for programs that need a toolchain to build. */
+  release?: Release[];
   /** A venv built from `locks/<lock>.txt`, the frozen environment the component was verified in. */
   python?: { version: string; lock: string; index?: string };
   /** Run from another component's checkout and venv instead of owning one. */
@@ -30,7 +38,12 @@ export interface Component {
 
 export const engineNames = ['breeze', 'qwen', 'irodori', 'ming', 'ming-tiny'] as const;
 export type Engine = (typeof engineNames)[number];
-export type Name = 'comfyui' | Engine;
+export type Name = 'comfyui' | Engine | 'translator';
+
+const llamaCpp = (asset: string, sha256: string) => ({
+  url: `https://github.com/ggml-org/llama.cpp/releases/download/b12317/${asset}`,
+  sha256,
+});
 
 const cu128 = 'https://download.pytorch.org/whl/cu128';
 const cu130 = 'https://download.pytorch.org/whl/cu130';
@@ -160,6 +173,26 @@ export const manifest: Record<Name, Component> = {
         repository: 'inclusionAI/Ming-3.0-tts-tiny',
         revision: '4715ef5a2f02901f75687d538b6920fd0dd11e6b',
         files: { '': 'weights/' },
+      },
+    ],
+  },
+  translator: {
+    // The CUDA 13 build runs on the NixOS host through nix-ld; building it would need nvcc there.
+    release: [
+      llamaCpp(
+        'llama-b12317-bin-ubuntu-cuda-13.5-x64.tar.gz',
+        'f78e642cb9b4a694a8ac8a864741238dcf4e61fa2e029f5b8f659633c331709a',
+      ),
+      llamaCpp(
+        'cudart-llama-b12317-bin-ubuntu-cuda-13.5-x64.tar.gz',
+        'da597a61b1965446791297a4f0d89cc1f0c1c4454d5f02e25d9791a32290b5d7',
+      ),
+    ],
+    weights: [
+      {
+        repository: 'tencent/Hy-MT2-7B-GGUF',
+        revision: 'ab8472660ac61fac25f1af43fac2599d52a8a775',
+        files: { 'HY-MT2-7B-Q8_0.gguf': 'weights/model.gguf' },
       },
     ],
   },

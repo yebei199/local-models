@@ -20,6 +20,7 @@ import {
   manifest,
   type Name,
   paths,
+  type Release,
   type Weights,
 } from './manifest';
 
@@ -76,6 +77,46 @@ function environment(component: Component, venv: string): void {
     ...index,
     join(repo, 'locks', `${python.lock}.txt`),
   ]);
+}
+
+/** Unpack verified archives into a fresh directory and swap it in whole, so `code/` is never a mix
+ * of two releases. The stamp names the archives it was built from. */
+async function release(dir: string, archives: Release[]): Promise<void> {
+  const stamp = join(dir, '.release');
+  const want = archives.map((archive) => archive.sha256).join('\n');
+  if (existsSync(stamp) && (await Bun.file(stamp).text()) === want) return;
+  const fresh = `${dir}.new`;
+  rmSync(fresh, { recursive: true, force: true });
+  mkdirSync(fresh, { recursive: true });
+  for (const archive of archives) {
+    const part = join(dirname(dir), `${basename(archive.url)}.part`);
+    console.log(`install: ${archive.url}`);
+    loud([
+      'curl',
+      '-fL',
+      '-#',
+      '-C',
+      '-',
+      '--retry',
+      '5',
+      '--retry-all-errors',
+      '-o',
+      part,
+      archive.url,
+    ]);
+    const hasher = new Bun.CryptoHasher('sha256');
+    for await (const chunk of Bun.file(part).stream()) hasher.update(chunk);
+    if (hasher.digest('hex') !== archive.sha256) {
+      rmSync(part);
+      throw new Error(`${archive.url}: hash mismatch, download removed`);
+    }
+    out(['tar', '-xzf', part, '-C', fresh, '--strip-components=1']);
+    rmSync(part);
+  }
+  await Bun.write(join(fresh, '.release'), want);
+  rmSync(dir, { recursive: true, force: true });
+  renameSync(fresh, dir);
+  console.log(`install: ${dir} unpacked`);
 }
 
 interface Entry {
@@ -188,6 +229,7 @@ async function install(models: string, name: Name, verify: boolean, done: Set<st
   if (!done.has(where.code)) {
     done.add(where.code);
     if (owner.code) checkout(where.code, owner.code);
+    if (owner.release) await release(where.code, owner.release);
     environment(owner, where.venv);
   }
   if (component.packages)
@@ -224,7 +266,7 @@ if (import.meta.main) {
     const config = read(where.config);
     const names = served(config);
     if (names.length) {
-      for (const tool of ['git', 'uv', 'curl', 'systemctl'])
+      for (const tool of ['git', 'uv', 'curl', 'tar', 'systemctl'])
         if (!Bun.which(tool)) throw new Error(`install: ${tool} is not on PATH`);
       const verify = process.argv.includes('--verify');
       const done = new Set<string>();

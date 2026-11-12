@@ -9,7 +9,16 @@ const repo = resolve(import.meta.dir, '..');
 
 /** Loopback ports. TTS avoids 8000-8199 because tailnet-https exposes that range; ComfyUI and the
  * web service sit inside it on purpose, so Caddy gives them +10000 HTTPS entries. */
-const port = { comfyFront: 8088, comfyBack: 8089, ttsFront: 8290, ttsBack: 8291, engine: 8292 };
+const port = {
+  comfyFront: 8088,
+  comfyBack: 8089,
+  ttsFront: 8290,
+  ttsBack: 8291,
+  engine: 8292,
+  /** Inside the tailnet-https range on purpose: Dialect on other hosts reaches it at +10000. */
+  translateFront: 8098,
+  translateBack: 8293,
+};
 const webPort = 8096;
 
 /** Every file setup writes carries this line; anything without it belongs to someone else. */
@@ -94,6 +103,22 @@ function engine(name: Name, models: string, tts: Tts, environment: Record<string
   }
 }
 
+/** llama-server with two slots of 8192 tokens: a batch fills both, and 8192 holds Dialect's
+ * character limit in and out. The q8_0 cache halves its VRAM at no audible cost to translation. */
+function translator(models: string, cuda: string, vram: number | undefined): Engine {
+  const at = paths(models, 'translator');
+  return {
+    directory: at.root,
+    command: [join(at.code, 'llama-server'), '-m', join(at.weights, 'model.gguf')].concat(
+      ['--host', '127.0.0.1', '--port', String(port.engine), '--no-webui'],
+      ['-ngl', '999', '-c', '16384', '-np', '2', '-fa', 'on', '-ctk', 'q8_0', '-ctv', 'q8_0'],
+    ),
+    // The release ships its own CUDA runtime next to the binary; the driver comes from the host.
+    environment: { LD_LIBRARY_PATH: `${at.code}:${cuda}` },
+    vram: vram ?? 10500,
+  };
+}
+
 function engines(tts: Tts, models: string, cuda: string): Record<string, Engine> {
   const environment = {
     LD_LIBRARY_PATH: cuda,
@@ -112,20 +137,25 @@ const defaultRoutes = {
 };
 
 /** Routes keep only engines this host has, so a host without Irodori still starts its gate. */
-function gateConfig(tts: Tts, models: string, cuda: string): string {
-  const found = engines(tts, models, cuda);
+function gateConfig(config: HostConfig, models: string, cuda: string): string {
+  const tts = config.tts;
+  const found = tts ? engines(tts, models, cuda) : {};
+  const translate = config.translate?.serve
+    ? { translator: translator(models, cuda, config.translate.requiredVram) }
+    : {};
   const routes = Object.fromEntries(
-    Object.entries(tts.routes ?? defaultRoutes).map(([use, byLanguage]) => [
+    Object.entries(tts ? (tts.routes ?? defaultRoutes) : {}).map(([use, byLanguage]) => [
       use,
       Object.fromEntries(Object.entries(byLanguage).filter(([, name]) => name in found)),
     ]),
   );
   const gate = {
-    engines: found,
+    engines: { ...found, ...translate },
     routes,
     enginePort: port.engine,
     vramWait: 30,
-    voices: tts.voices,
+    voices: tts?.voices ?? {},
+    ...(config.translate?.serve ? { translator: 'translator' } : {}),
   };
   return `${JSON.stringify(gate, null, 1)}\n`;
 }
@@ -164,7 +194,9 @@ interface Plan {
 
 function services(config: HostConfig, places: Places, bun: string, plan: Plan): void {
   const serveComfy = config.comfyui?.serve === true;
-  if (!config.tts && !serveComfy && !config.web) return;
+  const serveTranslate = config.translate?.serve === true;
+  const serveGate = Boolean(config.tts) || serveTranslate;
+  if (!serveGate && !serveComfy && !config.web) return;
   const models = modelRoot(config, places);
   const cuda = config.cudaLibraryPath ?? '/run/opengl-driver/lib';
   const idle = config.idleTime ?? '30min';
@@ -179,13 +211,14 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
   const run = (entry: string, ...args: string[]) =>
     [bun, join(repo, 'src', entry), '--', ...args].join(' ');
   const at = (name: string) => join(places.units, name);
-  /** Idle proxyd exits, the backend follows through StopWhenUnneeded, and its VRAM comes back. */
-  const front = (name: string, description: string, back: number) =>
+  /** Idle proxyd exits, the backend follows through StopWhenUnneeded once no front needs it, and
+   * its VRAM comes back. */
+  const front = (name: string, description: string, back: number, backend = `${name}-backend`) =>
     unit({
       Unit: {
         Description: description,
-        Requires: [`${name}.socket`, `${name}-backend.service`],
-        After: [`${name}.socket`, `${name}-backend.service`],
+        Requires: [`${name}.socket`, `${backend}.service`],
+        After: [`${name}.socket`, `${backend}.service`],
       },
       Service: {
         ExecStart: `${proxyd} --exit-idle-time=${idle} 127.0.0.1:${back}`,
@@ -241,9 +274,9 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
     );
     plan.start.push('comfyui.socket');
   }
-  if (config.tts) {
+  if (serveGate) {
     const gate = join(places.state, 'gate.json');
-    plan.files.set(gate, gateConfig(config.tts, models, cuda));
+    plan.files.set(gate, gateConfig(config, models, cuda));
     plan.files.set(
       at('tts.socket'),
       socket('Socket that starts the speech gate on the first request', port.ttsFront),
@@ -255,14 +288,27 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
     plan.files.set(
       at('tts-backend.service'),
       backend(
-        'Speech gate that runs one model at a time',
+        'Model gate that runs one speech or translation model at a time',
         models,
-        [`PORT=${port.ttsBack}`, `GATE_CONFIG=${gate}`],
+        [`PORT=${port.ttsBack}`, `GATE_CONFIG=${gate}`].concat(
+          serveTranslate ? [`TRANSLATE_PORT=${port.translateBack}`] : [],
+        ),
         run('gate.ts'),
         { TimeoutStartSec: 300 },
       ),
     );
     plan.start.push('tts.socket');
+  }
+  if (serveTranslate) {
+    plan.files.set(
+      at('translate.socket'),
+      socket('Socket that starts the translation API on the first request', port.translateFront),
+    );
+    plan.files.set(
+      at('translate.service'),
+      front('translate', 'Front for the translation API', port.translateBack, 'tts-backend'),
+    );
+    plan.start.push('translate.socket');
   }
   if (config.web) {
     plan.files.set(
@@ -294,6 +340,7 @@ function commands(config: HostConfig, places: Places, bun: string, plan: Plan): 
     TTS_HOST: config.host ?? '',
     TTS_PORT: String(port.ttsFront),
     COMFYUI_URL: config.comfyui?.url,
+    TRANSLATE_URL: config.translate?.url,
   };
   const exports = Object.entries(defaults)
     .filter(([, value]) => value !== undefined)
@@ -306,6 +353,7 @@ function commands(config: HostConfig, places: Places, bun: string, plan: Plan): 
     ['scene-video', 'scene.ts', 'video'],
     ['scene-narrate', 'narrate.ts', ''],
     ['scene-show', 'show.ts', ''],
+    ['translate', 'translate.ts', ''],
   ];
   for (const [name, entry, mode] of entries) {
     // The `--` after the entry is required: bun would otherwise swallow the script's first `--`.

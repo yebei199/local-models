@@ -4,6 +4,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   statSync,
@@ -89,6 +90,17 @@ const fakeSystemctl = `for a; do last=$a; done
 case ",$ACTIVE," in *",$last,"*) exit 0 ;; esac
 exit 3`;
 
+/** Release archives come from GitHub, which tests must not reach; the stand-in is not the pinned
+ * archive, so its hash never matches. Everything else goes to the real curl and the fake endpoint. */
+const fakeCurl = `for a; do case $a in https://github.com/*) github=1 ;; esac; done
+if [ -n "$github" ]; then
+  echo "curl $*" >> "$LOG"
+  while [ "$1" != -o ]; do shift; done
+  echo 'not the archive' > "$2"
+  exit 0
+fi
+exec ${Bun.which('curl')} "$@"`;
+
 /** ComfyUI, Irodori, and tiny without Ming: tiny must still get Ming's checkout and venv. */
 const modelHost = {
   host: 'pc3',
@@ -110,6 +122,7 @@ function host(): Host {
   writeFileSync(log, '');
   fakeShell(dir, 'git', fakeGit);
   fakeShell(dir, 'uv', fakeUv);
+  fakeShell(dir, 'curl', fakeCurl);
   const bin = fakeShell(dir, 'systemctl', fakeSystemctl);
   let status = 0;
   return {
@@ -237,6 +250,35 @@ describe('downloads', () => {
     await h.run(config, { args: ['--verify'] });
     expect(read(dest)).toBe(content('weights.pth'));
     expect(statSync(dest).size).toBe(content('weights.pth').length);
+  });
+});
+
+describe('release archives', () => {
+  const translating = { translate: { serve: true } };
+
+  test('an archive that does not match its hash is removed and leaves no code', async () => {
+    const h = host();
+    const out = await h.run(translating);
+    expect(h.status()).toBe(1);
+    expect(out).toContain('hash mismatch, download removed');
+    const root = join(h.models, 'translator');
+    expect(existsSync(join(root, 'code'))).toBe(false);
+    expect(readdirSync(root).filter((name) => name.endsWith('.part'))).toEqual([]);
+  });
+
+  test('code unpacked from the pinned archives is not fetched again', async () => {
+    const h = host();
+    const code = join(h.models, 'translator/code');
+    mkdirSync(code, { recursive: true });
+    const stamp = (manifest.translator.release ?? []).map((archive) => archive.sha256).join('\n');
+    writeFileSync(join(code, '.release'), stamp);
+    const out = await h.run(translating);
+    expect(h.status()).toBe(0);
+    expect(h.log()).not.toContain('github.com');
+    expect(read(join(h.models, 'translator/weights/model.gguf'))).toBe(
+      content('HY-MT2-7B-Q8_0.gguf'),
+    );
+    expect(out).toContain('install: translator ready');
   });
 });
 
