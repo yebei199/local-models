@@ -12,7 +12,7 @@
 它于 2026-11 从 nixos_config 迁出，之后不再用 nix：每台主机克隆一份检出，`bun run setup` 按本机的 config.json
 装模型、服务和命令。nixos_config 只引用 `skills/`；explore 仓库不再参与部署。
 
-命令用法、模型主机准备和安装配置见 [README.md](README.md)，这里不重复。TTS 模型试听结论见 [docs/tts-models.md](docs/tts-models.md)，翻译模型的见 [docs/translation-models.md](docs/translation-models.md)，音乐模型的见 [docs/music-models.md](docs/music-models.md)（音乐不进本仓库的命令，只在 pc3 上试跑）。
+命令用法、模型主机准备和安装配置见 [README.md](README.md)，这里不重复。TTS 模型试听结论见 [docs/tts-models.md](docs/tts-models.md)，翻译模型的见 [docs/translation-models.md](docs/translation-models.md)，语音转文字的见 [docs/asr-models.md](docs/asr-models.md)，音乐模型的见 [docs/music-models.md](docs/music-models.md)（音乐不进本仓库的命令，只在 pc3 上试跑）。
 
 ## 使用场景
 
@@ -90,6 +90,7 @@ skills/
 docs/
   tts-models.md         TTS 模型试听结论和当前选择
   translation-models.md 翻译模型的对比、实测和当前选择
+  asr-models.md         语音转文字模型的对比、浏览器路线结论和接口草案
   music-models.md       音乐模型试听和测量记录，以及云端服务的调查
   comfyui.md            浏览器里用 ComfyUI：节点、参数、五个工作流、自己搭图
 audition/
