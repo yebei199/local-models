@@ -1,4 +1,4 @@
-// Route speech and translation requests to the right model, keeping only one on the GPU at a time.
+// Route speech, transcription and translation requests to the right model, keeping only one on the GPU at a time.
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { requireVram } from './backend.ts';
@@ -15,7 +15,8 @@ interface Voice {
 }
 
 /** How to run one model on `enginePort`: speech engines answer the Breeze speech contract, the
- * translator answers OpenAI chat completions. */
+ * transcriber takes an audio upload and answers timed lines, the translator answers OpenAI chat
+ * completions. */
 interface Engine {
   command: string[];
   directory: string;
@@ -36,6 +37,8 @@ interface Config {
   engines: Record<string, Engine>;
   /** The engine behind the translation port, if this host translates. */
   translator?: string;
+  /** The engine behind `/v1/audio/transcriptions`, if this host transcribes. */
+  transcriber?: string;
 }
 
 /** A parsed request body; Bun and the DOM type FormData differently. */
@@ -63,9 +66,13 @@ function loadConfig(path: string): Config {
       if (!config.engines[engine]) throw new Error(`gate: route names unknown engine ${engine}`);
       if (!config.voices[use]?.[language]) throw new Error(`gate: no voice for ${use}/${language}`);
     }
-  if (config.translator && !config.engines[config.translator])
-    throw new Error(`gate: unknown translator ${config.translator}`);
+  for (const role of ['translator', 'transcriber'] as const) requireEngine(config, role);
   return config;
+}
+
+function requireEngine(config: Config, role: 'translator' | 'transcriber'): void {
+  const name = config[role];
+  if (name && !config.engines[name]) throw new Error(`gate: unknown ${role} ${name}`);
 }
 
 /** Ask politely first: a model that ignores SIGTERM must still give the card back. */
@@ -193,6 +200,27 @@ function gate(config: Config) {
     );
   }
 
+  /** The upload is buffered before it queues: a stream left waiting behind another job would
+   * stall the caller's connection. The engine answers when the whole file is transcribed. */
+  async function transcribe(request: Request, name: string): Promise<Response> {
+    const headers = { 'Content-Type': request.headers.get('Content-Type') ?? '' };
+    const body = await request.arrayBuffer();
+    try {
+      return await enqueue(name, async () => {
+        const response = await fetch(
+          `http://127.0.0.1:${config.enginePort}/v1/audio/transcriptions`,
+          { method: 'POST', body, headers, timeout: false },
+        );
+        return new Response(await response.arrayBuffer(), {
+          status: response.status,
+          headers: { 'Content-Type': response.headers.get('Content-Type') ?? 'text/plain' },
+        });
+      });
+    } catch (error) {
+      return new Response(String(error), { status: 503 });
+    }
+  }
+
   async function speech(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (request.method === 'GET' && path === '/v1/routes') return Response.json(config.routes);
@@ -212,9 +240,19 @@ function gate(config: Config) {
     }
   }
 
+  /** The loopback port behind ssh: speech and transcription share it, since both stay off the
+   * tailnet. */
+  function local(request: Request): Promise<Response> {
+    const path = new URL(request.url).pathname;
+    if (request.method !== 'POST' || path !== '/v1/audio/transcriptions') return speech(request);
+    if (!config.transcriber)
+      return Promise.resolve(new Response('this host does not transcribe', { status: 404 }));
+    return transcribe(request, config.transcriber);
+  }
+
   const translator = config.translator;
   const translate = translator ? libre((bodies) => complete(translator, bodies)).handle : undefined;
-  return { speech, translate, stop };
+  return { speech: local, translate, stop };
 }
 
 if (import.meta.main) {

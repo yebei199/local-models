@@ -38,7 +38,7 @@ export interface Component {
 
 export const engineNames = ['breeze', 'qwen', 'irodori', 'ming', 'ming-tiny'] as const;
 export type Engine = (typeof engineNames)[number];
-export type Name = 'comfyui' | Engine | 'translator';
+export type Name = 'comfyui' | Engine | 'translator' | 'asr';
 
 const llamaCpp = (asset: string, sha256: string) => ({
   url: `https://github.com/ggml-org/llama.cpp/releases/download/b12317/${asset}`,
@@ -173,6 +173,33 @@ export const manifest: Record<Name, Component> = {
         repository: 'inclusionAI/Ming-3.0-tts-tiny',
         revision: '4715ef5a2f02901f75687d538b6920fd0dd11e6b',
         files: { '': 'weights/' },
+      },
+    ],
+  },
+  asr: {
+    // Qwen3-ASR names the language of each VAD segment, which mixed-language videos need; the
+    // aligner's word times cut those segments into subtitle lines. See docs/asr-models.md.
+    python: { version: '3.12', lock: 'asr', index: cu130 },
+    weights: [
+      {
+        repository: 'Qwen/Qwen3-ASR-1.7B',
+        revision: '7278e1e70fe206f11671096ffdd38061171dd6e5',
+        files: { '': 'weights/asr/' },
+      },
+      {
+        repository: 'Qwen/Qwen3-ForcedAligner-0.6B',
+        revision: 'c7cbfc2048c462b0d63a45797104fc9db3ad62b7',
+        files: { '': 'weights/aligner/' },
+      },
+      {
+        repository: 'funasr/fsmn-vad',
+        revision: 'df20e6b30c653645fa4ff125cacfcabd1020a669',
+        files: {
+          'model.pt': 'weights/vad/',
+          'am.mvn': 'weights/vad/',
+          'config.yaml': 'weights/vad/',
+          'configuration.json': 'weights/vad/',
+        },
       },
     ],
   },

@@ -1,6 +1,6 @@
 # local-models
 
-一台 GPU 主机上的本地生图、生视频、语音和翻译命令。推理只在模型主机上跑，其他机器经 ssh 调用；
+一台 GPU 主机上的本地生图、生视频、语音、语音转文字和翻译命令。推理只在模型主机上跑，其他机器经 ssh 调用；
 服务按需启动，空闲退出，显存互相避让。
 
 | 命令 | 作用 |
@@ -13,6 +13,7 @@
 | `scene-show FILE`、`scene-show --clear` | 开窗口看产物、关掉这些窗口 |
 | `translate --to L [--from L] TEXT` | 翻译一段文字，译文写到标准输出；不给 TEXT 时读标准输入 |
 | `translate --to L -i F -o F` | 翻译整篇文档（按段落）或字幕（`.srt`、`.vtt`，按条，保留编号和时间轴） |
+| `asr transcribe AUDIO -o F [--lang L]` | 音频转成带时间轴的字幕行，写 JSON |
 
 `--lang` 必填，取 `en`、`ja`、`zh`；`--use` 是 `anki`（默认）或 `video`，两者决定用哪个模型。语言不自动
 检测：`学校` 这样的短词无法判断，猜错不会报错，只会读错：
@@ -35,6 +36,20 @@
 [docs/translation-models.md](docs/translation-models.md)。它约占 10 GiB 显存，放不进语音模型旁边，所以和 TTS
 共用一个网关、轮流上卡：语音之后第一次翻译要等模型加载几秒，翻译之后第一句 TTS 要重新冷启动。
 
+## 语音转文字
+
+`asr transcribe` 把任意 ffmpeg 能读的音频（m4a、webm、opus 等）上传到模型主机，等整段转完再写文件：
+
+```json
+{"lang": "zh", "model": "Qwen/Qwen3-ASR-1.7B@7278e1e7+…", "duration": 1215.8,
+ "segments": [{"from": 179.22, "to": 184.02, "text": "那另外一点难受的就是 Vision Pro 的脸型设计。", "lang": "zh"}]}
+```
+
+时间单位是秒。每行在句末断开，最长 15 秒；行上的 `lang` 是模型逐段判断的语言，顶层 `lang` 是按时长占比最多的那种。
+`--lang` 只是提示，不给就自动判断，所以中英日混说的视频不用拆。没有人声时返回空的 `segments`，退出码仍是 0；
+失败退出码非零，不留文件。模型是 Qwen3-ASR-1.7B 加 Qwen3-ForcedAligner-0.6B，约 8.4 GiB 显存，
+和 TTS、翻译共用网关轮流上卡，一小时音频热跑约 45 秒。选型见 [docs/asr-models.md](docs/asr-models.md)。
+
 ## 服务
 
 ComfyUI 和 TTS 结构相同：socket 收到第一个请求时拉起 `systemd-socket-proxyd` 和后端，空闲
@@ -45,7 +60,7 @@ ComfyUI 和 TTS 结构相同：socket 收到第一个请求时拉起 `systemd-so
 - 语音模型和 ComfyUI 不能同时在显存里。`scene-*` 开工前先停 `tts-backend.service`，模型随网关退出。
 - 反方向不杀任务：网关启动模型前查空闲显存，等 30 秒仍不够就拒绝请求。等待是因为 ComfyUI 的 `/free`
   先返回，权重几秒后才离开显存。
-- 服务只绑回环。远程的 `tts` 用 `ssh -L` 把私有 unix socket 转发到服务端口。
+- 服务只绑回环。远程的 `tts`、`asr` 用 `ssh -L` 把私有 unix socket 转发到网关端口。
 
 RTX 5080 上的实测：冷启动约 35 秒，之后实时率约 0.8。不需要 flash-attn，上游的 `api.py`
 写死了 eager 注意力。不要用 `--fast-all`，它要 14.4 GiB。
@@ -119,7 +134,7 @@ cd ~/.local/share/local-models/src && git pull && bun run setup
 ```
 
 模型主机按自己有的服务写对应的段，没写的服务不装。`comfyui.serve` 表示这台主机跑 ComfyUI，`tts.engines`
-列出要装的语音引擎，`translate.serve` 表示这台主机跑翻译模型。`host` 写本机名也算本机：
+列出要装的语音引擎，`translate.serve` 表示这台主机跑翻译模型，`asr.serve` 表示跑语音转文字。`host` 写本机名也算本机：
 
 ```json
 {
@@ -127,6 +142,7 @@ cd ~/.local/share/local-models/src && git pull && bun run setup
   "comfyui": { "url": "https://gpu-host.example.ts.net:18088", "serve": true },
   "web": {},
   "translate": { "url": "https://gpu-host.example.ts.net:18098", "serve": true },
+  "asr": { "serve": true },
   "tts": {
     "voices": {
       "anki": { "en": { "path": "/home/me/voices/quiet_en.wav", "text": "参考音频的准确文字稿" } },
@@ -139,7 +155,7 @@ cd ~/.local/share/local-models/src && git pull && bun run setup
 
 可选项：`models`（安装目录，默认 `~/.local/share/local-models/models`）、`idleTime`（默认 `30min`）、
 `cudaLibraryPath`（默认 `/run/opengl-driver/lib`）、`web.directory`、`tts.routes`（默认见上面的路由表）、
-各引擎和 `translate` 的 `requiredVram`（MiB，默认值写在 `src/setup.ts`，来自实测峰值）、`ming-tiny` 的 `bits`（4 或 8，默认 8）。
+各引擎、`translate` 和 `asr` 的 `requiredVram`（MiB，默认值写在 `src/setup.ts`，来自实测峰值）、`ming-tiny` 的 `bits`（4 或 8，默认 8）。
 旧版配置里的 `comfyui.directory`、`tts.directory` 等路径键已经去掉，留着会报错。
 
 ## 开发

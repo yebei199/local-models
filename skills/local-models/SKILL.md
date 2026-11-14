@@ -1,6 +1,6 @@
 ---
 name: local-models
-description: Generate speech, translations, images or video on the local GPU with the tts, translate and scene-* commands. Load when making audio for Anki cards, voicing a video script, translating zh/ja/en text, documents or subtitles locally, or generating images because Codex is out of quota.
+description: Generate speech, transcripts, translations, images or video on the local GPU with the tts, asr, translate and scene-* commands. Load when making audio for Anki cards, voicing a video script, transcribing audio into timed subtitles, translating zh/ja/en text, documents or subtitles locally, or generating images because Codex is out of quota.
 ---
 
 # local-models
@@ -58,6 +58,18 @@ translate --to zh -i IN.srt -o OUT.srt                  # 文档按段落、.srt
 - 字幕逐条翻译，条与条之间没有上下文，代词和省略可能译偏，公开发布前要人看。
 - 用户的 Dialect 走同一个接口（`https://模型主机:18098`，LibreTranslate 格式），报 `503 Only N MiB` 是 ComfyUI
   占着卡，不要停它。
+
+## 语音转文字
+
+```bash
+asr transcribe AUDIO -o OUT.json [--lang en|ja|zh]   # 任意 ffmpeg 能读的音频；整段转完才写文件
+```
+
+- 输出 `{lang, model, duration, segments:[{from, to, text, lang}]}`，秒为单位，句末断行，每行最长 15 秒。
+- 不给 `--lang` 就逐段自动判断语言，混说的视频直接交给它；给了就强制按该语言转写。
+- 没有人声时 `segments` 为空、退出码 0；失败非零退出，不留文件。
+- 模型是 Qwen3-ASR，数字常写成汉字（「六十帧」），游戏、专业名词偶有同音错字，要发布的字幕需人看。
+- 和 TTS、翻译轮流用显卡，`503 Only N MiB` 的处理同上。
 
 ## 图和视频
 

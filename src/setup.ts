@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { type HostConfig, modelRoot, type Places, places, read } from './config';
-import { type Engine as Name, paths } from './manifest';
+import { manifest, type Engine as Name, paths } from './manifest';
 
 /** The checkout every unit and command runs from, so `git pull` plus setup is the whole update. */
 const repo = resolve(import.meta.dir, '..');
@@ -119,14 +119,40 @@ function translator(models: string, cuda: string, vram: number | undefined): Eng
   };
 }
 
-function engines(tts: Tts, models: string, cuda: string): Record<string, Engine> {
-  const environment = {
+/** Qwen3-ASR with its aligner and fsmn-vad, in one process. Peak 8.4 GiB at batch 8, measured on
+ * the 12 evaluation videos; `model` in every answer names the pinned weights. */
+function transcriber(
+  models: string,
+  environment: Record<string, string>,
+  vram: number | undefined,
+): Engine {
+  const at = paths(models, 'asr');
+  const model = manifest.asr.weights
+    .map(({ repository, revision }) => `${repository}@${revision.slice(0, 8)}`)
+    .join('+');
+  return {
+    directory: at.root,
+    command: [at.python, script('asr.py'), '--weights', at.weights, '--model-id', model].concat(
+      '--port',
+      String(port.engine),
+    ),
+    environment,
+    vram: vram ?? 9500,
+  };
+}
+
+function engineEnvironment(cuda: string): Record<string, string> {
+  return {
     LD_LIBRARY_PATH: cuda,
     // NixOS has no /sbin/ldconfig; Triton finds libcuda through this or Qwen's first synthesis fails.
     TRITON_LIBCUDA_PATH: cuda,
     HF_HUB_OFFLINE: '1',
     TOKENIZERS_PARALLELISM: 'false',
   };
+}
+
+function engines(tts: Tts, models: string, cuda: string): Record<string, Engine> {
+  const environment = engineEnvironment(cuda);
   const names = Object.keys(tts.engines) as Name[];
   return Object.fromEntries(names.map((name) => [name, engine(name, models, tts, environment)]));
 }
@@ -143,6 +169,9 @@ function gateConfig(config: HostConfig, models: string, cuda: string): string {
   const translate = config.translate?.serve
     ? { translator: translator(models, cuda, config.translate.requiredVram) }
     : {};
+  const asr = config.asr?.serve
+    ? { asr: transcriber(models, engineEnvironment(cuda), config.asr.requiredVram) }
+    : {};
   const routes = Object.fromEntries(
     Object.entries(tts ? (tts.routes ?? defaultRoutes) : {}).map(([use, byLanguage]) => [
       use,
@@ -150,12 +179,13 @@ function gateConfig(config: HostConfig, models: string, cuda: string): string {
     ]),
   );
   const gate = {
-    engines: { ...found, ...translate },
+    engines: { ...found, ...translate, ...asr },
     routes,
     enginePort: port.engine,
     vramWait: 30,
     voices: tts?.voices ?? {},
     ...(config.translate?.serve ? { translator: 'translator' } : {}),
+    ...(config.asr?.serve ? { transcriber: 'asr' } : {}),
   };
   return `${JSON.stringify(gate, null, 1)}\n`;
 }
@@ -195,13 +225,16 @@ interface Plan {
 function services(config: HostConfig, places: Places, bun: string, plan: Plan): void {
   const serveComfy = config.comfyui?.serve === true;
   const serveTranslate = config.translate?.serve === true;
-  const serveGate = Boolean(config.tts) || serveTranslate;
+  const serveAsr = config.asr?.serve === true;
+  const serveGate = Boolean(config.tts) || serveTranslate || serveAsr;
   if (!serveGate && !serveComfy && !config.web) return;
   const models = modelRoot(config, places);
   const cuda = config.cudaLibraryPath ?? '/run/opengl-driver/lib';
   const idle = config.idleTime ?? '30min';
   const proxyd = resolve(dirname(tool('systemctl')), '../lib/systemd/systemd-socket-proxyd');
   const needs = ['nvidia-smi', 'systemctl', 'ss', ...(config.tts ? ['sox'] : [])];
+  // The transcriber decodes whatever container the caller uploaded.
+  if (serveAsr) needs.push('ffmpeg');
   if (serveComfy) needs.push('tailscale');
   const path = [...new Set(needs.map((name) => dirname(tool(name))).concat(dirname(bun)))].join(
     ':',
@@ -288,7 +321,7 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
     plan.files.set(
       at('tts-backend.service'),
       backend(
-        'Model gate that runs one speech or translation model at a time',
+        'Model gate that runs one speech, transcription or translation model at a time',
         models,
         [`PORT=${port.ttsBack}`, `GATE_CONFIG=${gate}`].concat(
           serveTranslate ? [`TRANSLATE_PORT=${port.translateBack}`] : [],
@@ -354,6 +387,7 @@ function commands(config: HostConfig, places: Places, bun: string, plan: Plan): 
     ['scene-narrate', 'narrate.ts', ''],
     ['scene-show', 'show.ts', ''],
     ['translate', 'translate.ts', ''],
+    ['asr', 'asr.ts', ''],
   ];
   for (const [name, entry, mode] of entries) {
     // The `--` after the entry is required: bun would otherwise swallow the script's first `--`.

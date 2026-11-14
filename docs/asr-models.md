@@ -72,34 +72,19 @@ transformers.js 4.3.2 跑 `onnx-community/whisper-large-v3-turbo`（编码器 fp
   真实 Chrome 走硬件解码，结论只能说明 GPU 计算没有挤占播放；内存才是会影响用户的那一项。
 - WASM（纯 CPU）没测：WebGPU 已经慢到不可用，CPU 只会更慢。
 
-## 接口草案（待和 winnow 定）
+## 接口
 
-照 `tts`：命令在任意主机运行，非模型主机经 ssh 转发 unix socket 到网关前端 8290，不开新端口。
+和 winnow 定下的形状，用法见 README。`asr transcribe <audio> -o out.json [--lang zh|en|ja]` 照 `tts` 的路走：
+非模型主机经 ssh 转发到网关前端 8290，不开新端口；网关路径 `POST /v1/audio/transcriptions`（multipart 的
+`file` 和可选 `language`），和语音、翻译同一串行队列，`requiredVram` 默认 9500 MiB。输出
+`{lang, model, duration, segments:[{from, to, text, lang}]}`；没有人声时 `segments` 为空、`lang` 为 null、
+退出码 0，失败一律非零。客户端超时 15 分钟。
 
-```text
-asr transcribe <audio> -o <out.json> [--lang zh|en|ja]
-```
-
-- 上传原始音频（m4a、webm、opus 等），模型主机用 ffmpeg 转 16 kHz 单声道。`--lang` 只是提示，缺省自动判断。
-- 网关加一个引擎和路径 `POST /v1/audio/transcriptions`（multipart：`file`、可选 `language`），
-  与语音、翻译同一串行队列，`requiredVram` 约 9.5 GiB（峰值 8.4 GiB 加余量）。
-- 收齐整个响应才写 `out.json`；失败非零退出，不留半截文件。
-- 超时：热跑每小时音频约 45 秒，加冷启动和排在别的任务后面，客户端超时取 15 分钟，覆盖两小时音频和一次换模型。
-
-```json
-{
-  "lang": "zh",
-  "model": "Qwen/Qwen3-ASR-1.7B@7278e1e7+Qwen/Qwen3-ForcedAligner-0.6B@c7cbfc20",
-  "duration": 1215.8,
-  "segments": [
-    {"from": 179.22, "to": 184.02, "text": "那另外一点难受的就是 Vision Pro 的脸型设计。", "lang": "zh"}
-  ]
-}
-```
-
-`lang` 是 ISO 639-1，顶层取按时长加权的主语言；段上的 `lang` 是模型逐段判断的结果。
+切段用 fsmn-vad（`funasr/fsmn-vad`，和试验时 ModelScope 的 `model.pt` 哈希一致）。试过去掉 funasr、改用
+`qwen-asr` 自带的按能量切 30 秒块：其余 11 段持平，重庆游记里一段人群齐喊让模型重复输出 131 次
+「come on」，中文段的语言也丢了（10.4% 升到 17.3%），所以留着 VAD。
 
 ## 复现
 
 试验环境在 pc3 `~/projects/asr-trial`（三个 venv、权重、脚本、输出），样本和评分在 pc1 `~/.cache/asr-eval`。
-接进本仓库时按 `manifest.ts` 钉权重，lock 从验证过的 venv 用 `uv pip freeze` 导出。
+生产环境是 `manifest.ts` 的 `asr` 组件，lock（`locks/asr.txt`）从 pc3 上验证过的 venv 导出。

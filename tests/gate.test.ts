@@ -101,7 +101,7 @@ async function start(dir: string, free = '12000') {
     extra?.(body);
     return fetch(`http://127.0.0.1:${gatePort}/v1/audio/speech`, { method: 'POST', body });
   };
-  return { gate, log, speak };
+  return { gate, log, speak, url: `http://127.0.0.1:${gatePort}` };
 }
 
 const lines = (path: string) => readFileSync(path, 'utf8').trim().split('\n');
@@ -234,7 +234,28 @@ Bun.serve({
 });
 `;
 
-/** The gate with one speech engine and the translator, on separate ports. */
+/** A fake transcriber: answers with the upload's text and the language hint it was given. */
+const TRANSCRIBER = `
+import { appendFileSync } from 'node:fs';
+const [port, log] = process.argv.slice(2);
+const note = (line) => appendFileSync(log, line + '\\n');
+note('start asr');
+process.on('SIGTERM', () => { note('stop asr'); process.exit(0); });
+Bun.serve({
+  hostname: '127.0.0.1',
+  port: Number(port),
+  async fetch(request) {
+    if (request.method === 'GET') return new Response('ready');
+    const form = await request.formData();
+    const text = await form.get('file').text();
+    if (text === 'boom') return new Response('cannot decode audio', { status: 400 });
+    note('transcribe ' + text);
+    return Response.json({ lang: form.get('language'), segments: [{ from: 0, to: 1, text }] });
+  },
+});
+`;
+
+/** The gate with one speech engine, the transcriber and the translator, on separate ports. */
 async function startBoth(dir: string, free = '12000') {
   const [gatePort, translatePort, enginePort] = [
     await freePort(),
@@ -245,6 +266,7 @@ async function startBoth(dir: string, free = '12000') {
   writeFileSync(log, '');
   writeFileSync(join(dir, 'engine.ts'), ENGINE);
   writeFileSync(join(dir, 'translator.ts'), TRANSLATOR);
+  writeFileSync(join(dir, 'asr.ts'), TRANSCRIBER);
   const bin = fakeTool(dir, 'nvidia-smi', `console.log(${JSON.stringify(free)});`);
   const voice = join(dir, 'en.wav');
   writeFileSync(voice, 'en-audio');
@@ -260,8 +282,10 @@ async function startBoth(dir: string, free = '12000') {
       engines: {
         one: engine([process.execPath, join(dir, 'engine.ts'), 'one', String(enginePort), log]),
         translator: engine([process.execPath, join(dir, 'translator.ts'), String(enginePort), log]),
+        asr: engine([process.execPath, join(dir, 'asr.ts'), String(enginePort), log]),
       },
       translator: 'translator',
+      transcriber: 'asr',
     }),
   );
   const gate = Bun.spawn([process.execPath, resolve('src/gate.ts')], {
@@ -293,7 +317,13 @@ async function startBoth(dir: string, free = '12000') {
     body.append('language', 'en');
     return fetch(`http://127.0.0.1:${gatePort}/v1/audio/speech`, { method: 'POST', body });
   };
-  return { base, speech: `http://127.0.0.1:${gatePort}`, log, translate, speak };
+  const transcribe = (audio: string, language?: string) => {
+    const body = new FormData();
+    body.append('file', new Blob([audio]), 'in.m4a');
+    if (language) body.append('language', language);
+    return fetch(`http://127.0.0.1:${gatePort}/v1/audio/transcriptions`, { method: 'POST', body });
+  };
+  return { base, speech: `http://127.0.0.1:${gatePort}`, log, translate, speak, transcribe };
 }
 
 /** The fields these tests read from LibreTranslate answers. */
@@ -375,5 +405,52 @@ describe('translation', () => {
     const { base, speech } = await startBoth(scratch());
     expect((await fetch(`${speech}/languages`)).status).toBe(404);
     expect((await fetch(`${base}/v1/routes`)).status).toBe(404);
+  });
+});
+
+describe('transcription', () => {
+  test('the upload and its language hint reach the transcriber, and its answer comes back', async () => {
+    const { transcribe } = await startBoth(scratch());
+    const response = await transcribe('words', 'ja');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      lang: 'ja',
+      segments: [{ from: 0, to: 1, text: 'words' }],
+    });
+  });
+
+  test('takes its turn on the card: speech leaves before the transcriber loads', async () => {
+    const { log, transcribe, speak } = await startBoth(scratch());
+    await speak();
+    await Promise.all([transcribe('first'), transcribe('second')]);
+    await speak();
+    expect(lines(log)).toEqual([
+      'start one',
+      'speak one hi',
+      'stop one',
+      'start asr',
+      'transcribe first',
+      'transcribe second',
+      'stop asr',
+      'start one',
+      'speak one hi',
+    ]);
+  });
+
+  test("the transcriber's refusal reaches the caller with its status", async () => {
+    const { transcribe } = await startBoth(scratch());
+    const response = await transcribe('boom');
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe('cannot decode audio');
+  });
+
+  test('a host without a transcriber says so without loading a model', async () => {
+    const { log, url } = await start(scratch());
+    const body = new FormData();
+    body.append('file', new Blob(['words']), 'in.m4a');
+    const response = await fetch(`${url}/v1/audio/transcriptions`, { method: 'POST', body });
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe('this host does not transcribe');
+    expect(readFileSync(log, 'utf8')).toBe('');
   });
 });

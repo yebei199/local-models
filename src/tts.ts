@@ -1,9 +1,8 @@
 // Speak text through the model gate, directly on the model host or over an SSH forward.
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { isLocal } from './host.ts';
+import { connect, type Endpoint } from './endpoint.ts';
 import { wav } from './wav.ts';
 
 /** Cold start alone costs about 35 seconds, and one request may queue behind another. */
@@ -27,46 +26,6 @@ interface Task {
   voice?: Voice;
   instruction?: string;
   seed?: string;
-}
-
-/** Where requests go, and how to release the route afterwards. */
-interface Endpoint {
-  url: string;
-  unix?: string;
-  close: () => void;
-}
-
-/** The port the service front listens on, on the model host. */
-function port(): string {
-  const value = process.env.TTS_PORT;
-  if (!value) throw new Error('tts: TTS_PORT was not supplied');
-  return value;
-}
-
-/** Forward a private unix socket to the service, so the service stays bound to loopback. */
-async function tunnel(host: string): Promise<Endpoint> {
-  const dir = mkdtempSync(join(process.env.XDG_RUNTIME_DIR || tmpdir(), 'tts-'));
-  const socket = join(dir, 'forward.sock');
-  const ssh = Bun.spawn(
-    ['ssh', '-N', '-o', 'ExitOnForwardFailure=yes', '-L', `${socket}:127.0.0.1:${port()}`, host],
-    { stdin: 'ignore', stdout: 'ignore', stderr: 'inherit' },
-  );
-  const close = () => {
-    ssh.kill();
-    rmSync(dir, { recursive: true, force: true });
-  };
-  for (let attempt = 0; attempt < 300 && ssh.exitCode === null; attempt++) {
-    if (existsSync(socket)) return { url: 'http://localhost', unix: socket, close };
-    await Bun.sleep(100);
-  }
-  close();
-  throw new Error(`tts: cannot reach ${host} over ssh`);
-}
-
-/** Local callers talk to the front directly; everyone else needs the forward. */
-async function connect(host: string): Promise<Endpoint> {
-  if (isLocal(host)) return { url: `http://127.0.0.1:${port()}`, close: () => {} };
-  return tunnel(host);
 }
 
 /** Build the multipart body; the gate fills in the fixed voice when none is given. */
@@ -210,7 +169,7 @@ async function main(args: string[]): Promise<void> {
   if (command !== 'synth' && command !== 'batch')
     throw new Error('Usage: tts synth|batch [options]');
   const tasks = command === 'synth' ? synthTask(rest) : batchTasks(rest);
-  const endpoint = await connect(process.env.TTS_HOST ?? '');
+  const endpoint = await connect('tts', process.env.TTS_HOST ?? '');
   try {
     for (const task of await grouped(endpoint, tasks)) await synthesize(endpoint, task);
   } finally {

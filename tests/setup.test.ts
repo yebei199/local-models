@@ -34,7 +34,7 @@ function host(): Host {
 const args = process.argv.slice(2);
 if (args.includes('is-active')) process.exit((process.env.ACTIVE ?? '').split(',').includes(args.at(-1)) ? 0 : 3);`;
   fakeTool(dir, 'systemctl', record);
-  for (const name of ['nvidia-smi', 'ss', 'sox', 'tailscale']) fakeTool(dir, name, '');
+  for (const name of ['nvidia-smi', 'ss', 'sox', 'tailscale', 'ffmpeg']) fakeTool(dir, name, '');
   const path = `${join(dir, 'bin')}:${process.env.PATH}`;
   return {
     home,
@@ -175,6 +175,28 @@ describe('translation', () => {
     expect(gate.routes).toEqual({});
   });
 
+  test('a transcribing host runs Qwen3-ASR behind the speech gate, naming its pinned weights', async () => {
+    const h = host();
+    expect((await h.run({ host: 'pc3', models: '/srv/models', asr: { serve: true } })).status).toBe(
+      0,
+    );
+    const gate = JSON.parse(h.file('.local/state/local-models/gate.json'));
+    expect(gate.transcriber).toBe('asr');
+    const { command, directory, vram } = gate.engines.asr;
+    expect(command.slice(0, 4)).toEqual([
+      '/srv/models/asr/venv/bin/python',
+      resolve('engines/asr.py'),
+      '--weights',
+      '/srv/models/asr/weights',
+    ]);
+    expect(command[command.indexOf('--model-id') + 1]).toMatch(/^Qwen\/Qwen3-ASR-1\.7B@\w{8}\+/);
+    expect(command.join(' ')).toContain('--port 8292');
+    expect(directory).toBe('/srv/models/asr');
+    expect(vram).toBe(9500);
+    expect(gate.routes).toEqual({});
+    expect(readFileSync(h.log, 'utf8')).toContain('tts.socket');
+  });
+
   test('the command carries the tailnet URL', async () => {
     const h = host();
     await h.run({ host: 'pc3', translate: { url: 'https://pc3.example:18098' } });
@@ -195,6 +217,7 @@ describe('commands', () => {
     expect(tts).toContain('export TTS_HOST="${TTS_HOST-pc3}"');
     expect(tts).toContain(`'${resolve('src/tts.ts')}' -- "$@"`);
     expect(h.file('.local/bin/scene-video')).toContain('scene.ts\' -- video "$@"');
+    expect(h.file('.local/bin/asr')).toContain(`'${resolve('src/asr.ts')}' -- "$@"`);
   });
 
   test('an explicitly empty host still means this machine', async () => {

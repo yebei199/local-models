@@ -26,6 +26,8 @@ export interface HostConfig {
   web?: { directory?: string };
   /** `url` is the tailnet entry the `translate` command calls; `serve` runs the model here. */
   translate?: { url?: string; serve?: boolean; requiredVram?: number };
+  /** `serve` runs speech-to-text here, behind the same gate and front as speech. */
+  asr?: { serve?: boolean; requiredVram?: number };
   tts?: {
     voices: Record<string, Record<string, Voice>>;
     routes?: Record<string, Record<string, string>>;
@@ -107,6 +109,7 @@ export function served(config: HostConfig): Name[] {
     ...(config.comfyui?.serve ? (['comfyui'] as const) : []),
     ...engines,
     ...(config.translate?.serve ? (['translator'] as const) : []),
+    ...(config.asr?.serve ? (['asr'] as const) : []),
   ];
 }
 

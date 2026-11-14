@@ -2,7 +2,7 @@
 
 ## 项目目的
 
-把一张消费级 GPU 上的语音合成、翻译、生图和生视频做成普通命令行工具，主要服务个人 Anki 制卡，也给公开视频配音。
+把一张消费级 GPU 上的语音合成、语音转文字、翻译、生图和生视频做成普通命令行工具，主要服务个人 Anki 制卡，也给公开视频配音、给 winnow 补视频字幕。
 推理只在一台模型主机上跑，其他机器用同样的命令远程调用。显存放不下所有模型，所以服务按需启动、
 空闲退出、互相避让。语音按用途和语言路由到不同模型，同一时间只有一个模型在显存里。
 
@@ -22,6 +22,7 @@
 |---|---|---|
 | Anki 制卡 | 一种语言连续做几十分钟（比如先英文，再日语），期间不快速换语言。卡片一张一张做，每张之间隔 2 到 10 分钟，用来和 AI 讨论这张卡 | 模型要撑过卡片之间的间隔；换语言时冷切换一次可以接受 |
 | 公开视频口播 | 写好整篇稿子，一次性批量生成多句 | `tts batch` 整批完成；不需要实时或流式 |
+| 字幕转录 | winnow 的工人（在 pc1）对下不到字幕的视频调 `asr transcribe`，每天几个到几十个，单个几分钟到两小时，串行排队 | 同步阻塞即可；中英日混说要逐段判断语言；和语音、翻译轮流占显存 |
 | 翻译 | 截图 OCR 出的短文本在各主机的 Dialect 里翻译，量大；偶尔整篇文档或字幕用 `translate` | 优先质量；和语音模型轮流占显存，切换代价可以接受 |
 | 生图 | 平时用 Codex 生图，没额度时才用本地模型 | 备用路径，保持可用即可，不为它常驻显存 |
 | 生视频 | 很少用，暂无明确用途 | 保留现有功能，不扩展也不删除 |
@@ -34,13 +35,13 @@
 
 ```text
 任意主机                          模型主机（systemd --user）
-tts ── ssh -L unix socket ──────► tts.socket 127.0.0.1:8290
+tts、asr ── ssh -L unix socket ─► tts.socket 127.0.0.1:8290
                                     └ tts.service（socket-proxyd）
-                                        └ tts-backend.service :8291（model-gate，语音）
+                                        └ tts-backend.service :8291（model-gate，语音和语音转文字）
 Dialect、translate ── tailnet HTTPS :18098 ► Caddy ► translate.socket 127.0.0.1:8098
                                     └ translate.service（socket-proxyd）
                                         └ 同一个 tts-backend.service :8293（model-gate，LibreTranslate 接口）
-                                            └ 当前模型 :8292（Breeze、Ming、Irodori、Qwen 或 llama-server）
+                                            └ 当前模型 :8292（Breeze、Ming、Irodori、Qwen、Qwen3-ASR 或 llama-server）
 
 scene-image/video ─── HTTP(S) ► comfyui.socket 127.0.0.1:8088
   │                                 └ comfyui.service（socket-proxyd）
@@ -62,8 +63,11 @@ scene-narrate、scene-show         在调用方本机运行，只用 ffmpeg 和 
 - 翻译接口单独一个端口（8293，前端 8098）：只有它经 Caddy 进 tailnet，语音端口仍只在回环、走 ssh。
   接口照 LibreTranslate 的形状（`/translate`、`/languages`、`/detect`、`/spec`、`/frontend/settings`），
   因为客户端是 Dialect，只能填实例地址。tailnet 内不鉴权，和 ComfyUI、试听页一样。
-- 所有模型都讲 Breeze 的协议：multipart 的 `text`、`ref_text`、`ref_audio`，返回裸 PCM 和
+- 所有语音模型都讲 Breeze 的协议：multipart 的 `text`、`ref_text`、`ref_audio`，返回裸 PCM 和
   `X-Sample-Rate`。`engines/` 把 Qwen、Irodori 和 Ming 包成这个协议，网关才不用区分模型。
+- 语音转文字也走这个网关和语音端口（`POST /v1/audio/transcriptions`，multipart 的 `file` 和可选 `language`），
+  因为调用方和 `tts` 一样在别的主机经 ssh 来，不进 tailnet。网关先把整个上传读完再排队：排队期间让连接挂着，
+  调用方的上传会卡住。音频由引擎用 ffmpeg 从临时文件解码，yt-dlp 的 m4a 可能把索引放在末尾，管道读不到。
 - 固定音色在模型主机上，按 `use` 和 `language` 各配一条同语言参考，由网关补进请求，调用方不必携带音频。
   克隆会照搬参考的语气，所以视频用讲故事的参考，制卡用安静的参考。
 - TTS 只绑回环，远程必须走 ssh 转发。ComfyUI 不走 ssh：客户端访问 `COMFYUI_URL`，backend 额外
@@ -83,6 +87,7 @@ engines/
   common.py             Breeze 协议的 HTTP 服务，只用标准库和 numpy
   qwen.py、irodori.py、ming.py  各模型的加载和合成，跑在模型自己的 .venv 里
                         翻译模型不在这里：llama-server 本身讲 OpenAI chat 协议，网关直接调用
+  asr.py                Qwen3-ASR：fsmn-vad 切段、逐段识别和判语言、对齐器按句末切行；收上传音频，回 JSON
   mingtiny.py           Ming tiny：专家权重流式量化到 int8；文件名不能叫 ming_tiny.py，会遮住上游同名包
 skills/
   local-models/SKILL.md 给 AI 用的命令说明，由 nixos_config 链接安装；改命令或路由时同步更新
@@ -90,14 +95,16 @@ skills/
 docs/
   tts-models.md         TTS 模型试听结论和当前选择
   translation-models.md 翻译模型的对比、实测和当前选择
-  asr-models.md         语音转文字模型的对比、浏览器路线结论和接口草案
+  asr-models.md         语音转文字模型的对比、浏览器路线结论和接口
   music-models.md       音乐模型试听和测量记录，以及云端服务的调查
   comfyui.md            浏览器里用 ComfyUI：节点、参数、五个工作流、自己搭图
 audition/
   index.html            音色对比页；清单和音频留在模型主机，不进仓库
 src/
   host.ts               isLocal：本机与 ssh 的唯一判定
-  tts.ts                tts 命令：连接网关、synth 和 batch，batch 按模型分组
+  endpoint.ts           connect：本机直连网关前端，其他主机经 ssh 转发 unix socket；tts 和 asr 共用
+  tts.ts                tts 命令：synth 和 batch，batch 按模型分组
+  asr.ts                asr 命令：上传音频，收齐整个 JSON 才写文件
   gate.ts               model-gate：路由、串行队列、模型启停；语音和翻译各一个端口
   libre.ts              网关的 LibreTranslate 接口：校验、语言检测、Hy-MT2 的提示词
   translate.ts          translate 命令：文本、文档按段、字幕按条，整篇译完才写文件
@@ -122,7 +129,7 @@ tests/
   *.test.ts             与 src 入口一一对应；wav 和 host 经 tts、scene 覆盖
 ```
 
-`setup.ts` 的入口映射：命令 `translate` 是 `translate.ts`；命令 `scene-image`、`scene-video` 都是 `scene.ts`；单元直接用 bun 跑
+`setup.ts` 的入口映射：命令 `translate` 是 `translate.ts`，命令 `asr` 是 `asr.ts`；命令 `scene-image`、`scene-video` 都是 `scene.ts`；单元直接用 bun 跑
 `backend.ts start`、`backend.ts wait`、`gate.ts`、`web.ts`，这些不进用户 PATH。各模型的启动命令也由 `setup.ts`
 写进网关配置 `GATE_CONFIG`，路径全由 `manifest.ts` 的 `paths` 推出，config.json 只列这台主机跑哪些引擎。
 
