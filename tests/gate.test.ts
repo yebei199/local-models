@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
-import { fakeTool, scratch } from './helpers.ts';
+import { fakeTool, freePort, scratch, untilUp } from './helpers.ts';
 
 const children: Bun.Subprocess[] = [];
 
@@ -12,16 +11,6 @@ afterEach(async () => {
     await child.exited;
   }
 });
-
-/** A port nothing is listening on yet. */
-function freePort(): Promise<number> {
-  return new Promise((done) => {
-    const server = createServer().listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      server.close(() => done(typeof address === 'object' && address ? address.port : 0));
-    });
-  });
-}
 
 /** A fake engine: logs its life cycle and echoes what it was asked in the audio bytes. */
 const ENGINE = `
@@ -49,7 +38,7 @@ Bun.serve({
 
 /** Start the gate with two fake engines and a fake GPU reporting `free` MiB. */
 async function start(dir: string, free = '12000') {
-  const [gatePort, enginePort] = [await freePort(), await freePort()];
+  const [gatePort, enginePort] = [freePort(), freePort()];
   const log = join(dir, 'log');
   writeFileSync(log, '');
   const script = join(dir, 'engine.ts');
@@ -80,14 +69,10 @@ async function start(dir: string, free = '12000') {
   const gate = Bun.spawn([process.execPath, resolve('src/gate.ts')], {
     env: { PATH: `${bin}:${process.env.PATH}`, PORT: String(gatePort), GATE_CONFIG: config },
     stdout: 'ignore',
-    stderr: 'ignore',
+    stderr: 'pipe',
   });
   children.push(gate);
-  for (let attempt = 0; attempt < 100; attempt++) {
-    const up = await fetch(`http://127.0.0.1:${gatePort}/`).catch(() => undefined);
-    if (up) break;
-    await Bun.sleep(50);
-  }
+  await untilUp(gate, `http://127.0.0.1:${gatePort}/`);
   const speak = (
     text: string,
     language: string,
@@ -136,7 +121,7 @@ test('a route without a voice for its language stops the gate at start', async (
     }),
   );
   const gate = Bun.spawn([process.execPath, resolve('src/gate.ts')], {
-    env: { ...process.env, PORT: String(await freePort()), GATE_CONFIG: config },
+    env: { ...process.env, PORT: String(freePort()), GATE_CONFIG: config },
     stdout: 'ignore',
     stderr: 'ignore',
   });
@@ -257,11 +242,7 @@ Bun.serve({
 
 /** The gate with one speech engine, the transcriber and the translator, on separate ports. */
 async function startBoth(dir: string, free = '12000') {
-  const [gatePort, translatePort, enginePort] = [
-    await freePort(),
-    await freePort(),
-    await freePort(),
-  ];
+  const [gatePort, translatePort, enginePort] = [freePort(), freePort(), freePort()];
   const log = join(dir, 'log');
   writeFileSync(log, '');
   writeFileSync(join(dir, 'engine.ts'), ENGINE);
@@ -296,14 +277,11 @@ async function startBoth(dir: string, free = '12000') {
       GATE_CONFIG: config,
     },
     stdout: 'ignore',
-    stderr: 'ignore',
+    stderr: 'pipe',
   });
   children.push(gate);
   const base = `http://127.0.0.1:${translatePort}`;
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if (await fetch(`${base}/languages`).catch(() => undefined)) break;
-    await Bun.sleep(50);
-  }
+  await untilUp(gate, `${base}/languages`);
   const translate = (body: object) =>
     fetch(`${base}/translate`, {
       method: 'POST',

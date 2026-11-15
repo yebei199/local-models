@@ -4,21 +4,13 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { Entry } from '../src/audition';
-import { fakeTool, scratch } from './helpers';
+import { fakeTool, freePort, scratch } from './helpers';
 
 const children: Bun.Subprocess[] = [];
 
 afterEach(() => {
   for (const child of children.splice(0)) child.kill();
 });
-
-/** An unused loopback port, released before the server under test binds it. */
-function freePort(): number {
-  const probe = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response() });
-  const { port } = probe;
-  probe.stop(true);
-  return port as number;
-}
 
 /** A stand-in for the built browser app: its shell and one asset. */
 function app(): string {

@@ -66,3 +66,36 @@ export async function run(
   ]);
   return { status, stdout, stderr };
 }
+
+const handedOut = new Set<number>();
+
+/** A free loopback port for a server under test to bind later. Drawn below Linux's ephemeral
+ * range (32768+) because the port sits unbound until the child starts, and on a busy host any
+ * outgoing connection can take an ephemeral port in that window; the child then dies on bind. */
+export function freePort(): number {
+  for (;;) {
+    const port = 20000 + Math.floor(Math.random() * 12768);
+    if (handedOut.has(port)) continue;
+    try {
+      Bun.serve({ hostname: '127.0.0.1', port, fetch: () => new Response() }).stop(true);
+    } catch {
+      continue;
+    }
+    handedOut.add(port);
+    return port;
+  }
+}
+
+/** Wait until `url` answers, failing at once with the child's stderr if it exits first. */
+export async function untilUp(child: Bun.Subprocess<'ignore', 'ignore', 'pipe'>, url: string) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (await fetch(url).catch(() => undefined)) return;
+    if (child.exitCode !== null) {
+      throw new Error(
+        `${url} exited ${child.exitCode}: ${await new Response(child.stderr).text()}`,
+      );
+    }
+    await Bun.sleep(50);
+  }
+  throw new Error(`${url} did not answer`);
+}
