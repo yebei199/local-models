@@ -82,9 +82,12 @@ scene-narrate VIDEO SENTENCE.wav WORD.wav OUT.mp4   # 环境声后接整句、�
 scene-show FILE                                     # 开窗口看产物，scene-show --clear 全部关掉
 ```
 
-- 不加 `--raw` 时会自动套固定风格前缀。
+- 模型是 MOSS-Image（Apache 2.0），1536×1024 约 15 秒，冷启动约 35 秒。
+- 不加 `--raw` 时会自动套固定风格前缀：二次元标签、负面词，并把场景里的动物画成兽耳娘。场景用英文写，
+  明确写出角色和数量（`one rabbit girl`），只写「a rabbit」时偶尔会画成一群或画成动物脸。
+- `--raw` 时提示词原样送入。二次元图用标签写法（`masterpiece, best quality, 1girl, cat ears, ...`）好于整句；
+  要画进图里的字放在英文引号里，中英文都能写对。
 - 视频帧数必须满足 `17k+5` 且不超过 209，默认 124。
 - `scene-*` 开工前会停掉语音模型，之后第一句 `tts` 要重新冷启动，所以别把生图和制卡语音穿插着跑。
 - `scene-video` 的产物不进公开视频：MiniMax H3 的许可排除美国、欧盟、英国、韩国，并禁止在这些地区展示生成结果。
-- `scene-image` 的 flux-2-klein-9b 在 Hugging Face 标为非商用许可，全文要登录才能读，还没核对过。
-  公开内容出图用 Codex；要用 `scene-image` 出公开内容，先读许可全文。
+- 改图（换衣服、换道具、换时间）没有命令，在浏览器的 ComfyUI 里用 `moss_edit` 工作流。

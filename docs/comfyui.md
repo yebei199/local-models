@@ -7,12 +7,13 @@
 
 ## 三分钟跑出第一张图
 
-左侧栏点 **Workflows**，选 `klein_t2i`。找到写着提示词的 `CLIP Text Encode` 节点，换成你想要的画面，
-按 **Ctrl+Enter**。约 5 秒出图，文件落在模型主机的 `models/comfyui/data/output/`。
+左侧栏点 **Workflows**，选 `moss_t2i`。找到标着 `Positive Prompt` 的 `CLIP Text Encode` 节点，换成你想要的画面，
+按 **Ctrl+Enter**。1536×1024 约 15 秒出图（冷启动约 35 秒），文件落在模型主机的 `models/comfyui/data/output/`。
 
 出视频选 `h3_t2v`，约 140 秒，因为是 124 帧而不是 1 帧。
 
-提示词用英文：两个模型的文本编码器都以英文为主，中文能识别但差很多。
+提示词用英文。MOSS-Image 的二次元图用标签写法（`masterpiece, best quality, 1girl, cat ears, ...`）明显好于整句描述，
+因为它的二次元训练数据就是这样标注的；要画进图里的字放在英文引号里，中英文都写得对。H3 的编码器以英文为主，中文差很多。
 
 ## 扩散模型在做什么
 
@@ -28,21 +29,21 @@
 
 | 类 | 节点 | 作用 |
 |---|---|---|
-| 加载器 | `Load Diffusion Model`、`Load CLIP`、`Load VAE`、`Unet Loader (GGUF)` | 读权重，图的起点 |
-| 条件 | `CLIP Text Encode`、`Conditioning Zero Out`、`Reference Latent` | 文字或参考图变成条件 |
-| 采样准备 | `Random Noise`、`KSampler Select`、`Basic Scheduler` / `Flux2 Scheduler`、`Empty ... Latent`、`CFG Guider` / `Basic Guider` | 噪声、算法、步数表、画布尺寸、引导器 |
-| 采样 | `Sampler Custom Advanced` | 唯一真正耗时的节点 |
+| 加载器 | `Load Diffusion Model`、`Load CLIP`、`Load VAE`、`LoraLoaderModelOnly` | 读权重，图的起点 |
+| 条件 | `CLIP Text Encode`、`Text Encode MOSS-Image Edit`、`Reference Latent` | 文字或参考图变成条件 |
+| 采样准备 | `Skip Layer Guidance DiT Simple`、`Random Noise`、`KSampler Select`、`Basic Scheduler`、`Empty ... Latent`、`CFG Guider` | 引导、噪声、算法、步数表、画布尺寸 |
+| 采样 | `KSampler`、`Sampler Custom Advanced` | 唯一真正耗时的节点 |
 | 输出 | `VAE Decode`、`Save Image`、`Create Video` + `Save Video` | 还原像素并存盘 |
 
-ComfyUI 按类型连线，类型不对连不上。但类型对不代表能用：**文本编码器和 VAE 必须和扩散模型同源**。Klein 的编码器是
-Qwen3-8B，H3 的是 Qwen3-VL-32B，两者都是 CLIP 类型，连得上，混用只会出噪声。
+ComfyUI 按类型连线，类型不对连不上。但类型对不代表能用：**文本编码器和 VAE 必须和扩散模型同源**。MOSS-Image 的编码器是
+Qwen3.5-9B（`CLIPLoader` 类型选 `moss_image`），H3 的是 Qwen3-VL-32B，两者都是 CLIP 类型，连得上，混用只会出噪声。
 
 ## 五个工作流
 
 | 工作流 | 做什么 | 耗时 |
 |---|---|---|
-| `klein_t2i` | 文字出图 1024×1024 | 约 5 秒 |
-| `klein_edit` | 一张图加文字描述，改成新样子 | 约 8 秒 |
+| `moss_t2i` | 文字出图 1536×1024 | 约 15 秒 |
+| `moss_edit` | 一张图加一句修改指令，只改说到的部分 | 约 15 秒（1 MP） |
 | `h3_t2v` | 文字出视频 864×480，5 秒，带音轨 | 约 140 秒 |
 | `h3_i2v` | 给首帧，让画面动起来 | 约 135 秒 |
 | `h3_ref2v` | 给参考图，生成风格一致的视频 | 约 150 秒 |
@@ -52,17 +53,20 @@ Qwen3-8B，H3 的是 Qwen3-VL-32B，两者都是 CLIP 类型，连得上，混�
 ## 可以动的参数
 
 - **提示词**：主要的创作入口。具体的名词和光线描述比形容词有效。
-- **尺寸**：`Empty ... Latent` 的宽高，必须是 32 的倍数。Klein 在 1024×1024 附近最稳；H3 原生短边 768，864×480
-  是显存和质量的折中。
-- **种子**：`Random Noise` 的 `noise_seed`。种子和参数都相同就得到同一张，想复现就固定它。
+- **尺寸**：`Empty ... Latent` 的宽高，MOSS-Image 要 16 的倍数，100 万到 200 万像素最稳；H3 要 32 的倍数，原生短边
+  768，864×480 是显存和质量的折中。
+- **改图指令**：`moss_edit` 的正面编码节点照 LoRA 训练时的句式写最稳：`Change only the X to Y. Keep the character, face,
+  hair, pose, background and composition unchanged.`
+- **种子**：`KSampler` 的 `seed`，H3 是 `Random Noise` 的 `noise_seed`。种子和参数都相同就得到同一张，想复现就固定它。
 - **视频长度**：`length`，单位帧，24fps，只接受 17k+5（5、22、39……124）。训练范围从 124 起，更短会掉质量。
 
 ## 不要动的参数
 
-- **Klein 的 cfg 保持 1、步数保持 4。** 这是引导蒸馏版，几步出图且不需要负面引导；套 base 版的 cfg 5、20 步会过曝，
-  还白烧十倍算力。`CFG Guider` 的 cfg 是 1、负面接 `Conditioning Zero Out`，就是蒸馏版的配置。
+- **MOSS-Image 的采样参数照官方模板。** 出图 25 步、cfg 2.5、`er_sde` + `simple`，第 22 层跳层引导只作用于前一半；
+  改图 30 步、cfg 4、`euler` + `normal`，跳层引导全程。改图 cfg 太低会凭空长出首饰之类的东西。
+- **改图两个编码节点的 `edit_format` 保持 `Moss-Image-Edit`**，要和 LoRA 训练时的格式一致，选错照样出图但会走样。
 - **H3 帧数不超过 209。** 超过后采样跑完、解码时爆显存，前面几分钟白费。
-- **采样器和调度器保持原样。** Klein 用 `euler`，H3 用 `res_multistep`，都是官方模板的选择。
+- **采样器和调度器保持原样。** H3 用 `res_multistep`，是官方模板的选择。
 
 ## 出错了
 
@@ -86,6 +90,6 @@ Qwen3-8B，H3 的是 Qwen3-VL-32B，两者都是 CLIP 类型，连得上，混�
 侧栏的工作流目录链接到运行检出的 `comfyui/workflows/`，界面里保存就是改仓库文件，`git diff` 看得见。界面格式是真源：
 它能在浏览器里编辑，侧栏也只认这种格式；API 格式只能在浏览器里手动导出，所以它是产物。
 
-`klein_t2i`、`h3_i2v` 还是 `scene-image`、`scene-video` 的来源。改了它们就 `Workflow > Export (API)`，
+`moss_t2i`、`h3_i2v` 还是 `scene-image`、`scene-video` 的来源。改了它们就 `Workflow > Export (API)`，
 把结果按 AGENTS.md 的工作流规则放回 `src/workflows.json`；`bun run check` 会指出两边哪里不一致。
 界面和命令共用一个服务和一块显卡，不要同时提交大任务。

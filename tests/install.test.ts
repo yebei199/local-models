@@ -162,8 +162,8 @@ describe('a fresh model host', () => {
     const out = await h.run(modelHost);
     expect(h.status()).toBe(0);
     const comfy = join(h.models, 'comfyui/data/models');
-    expect(read(join(comfy, 'unet/flux-2-klein-9b-Q8_0.gguf'))).toBe(
-      content('flux-2-klein-9b-Q8_0.gguf'),
+    expect(read(join(comfy, 'diffusion_models/moss_image_sft_int8_convrot.safetensors'))).toBe(
+      content('diffusion_models/moss_image_sft_int8_convrot.safetensors'),
     );
     expect(existsSync(join(comfy, 'vae/flux2-vae.safetensors'))).toBe(true);
     expect(
@@ -185,9 +185,6 @@ describe('a fresh model host', () => {
     await h.run(modelHost);
     const head = (dir: string) => read(join(h.models, dir, '.git/HEAD'));
     expect(head('comfyui/code')).toBe(manifest.comfyui.code?.revision as string);
-    expect(head('comfyui/data/custom_nodes/ComfyUI-GGUF')).toBe(
-      manifest.comfyui.nodes?.['ComfyUI-GGUF']?.revision as string,
-    );
     expect(head('ming/code')).toBe(manifest.ming.code?.revision as string);
     const calls = h.log();
     expect(calls).toContain(`uv venv -q --python 3.10 ${join(h.models, 'ming/venv')}`);

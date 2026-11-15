@@ -245,8 +245,6 @@ async function install(models: string, name: Name, verify: boolean, done: Set<st
       where.packages,
       ...component.packages,
     ]);
-  for (const [node, pin] of Object.entries(component.nodes ?? {}))
-    checkout(join(where.data, 'custom_nodes', node), pin);
   if (name === 'comfyui') linkWorkflows(where.data);
   let fetched = 0;
   for (const weights of component.weights)

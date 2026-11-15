@@ -75,7 +75,7 @@ RTX 5080 上的实测：冷启动约 35 秒，之后实时率约 0.8。不需要
 
 | 组件 | 代码 | Python | 权重 |
 |---|---|---|---|
-| `comfyui` | ComfyUI v0.45.0、ComfyUI-GGUF | 3.12，cu130 | Flux2 Klein 9B（GGUF）、MiniMax H3 |
+| `comfyui` | ComfyUI v0.45.0 | 3.12，cu130 | MOSS-Image SFT（int8）和改图 LoRA、MiniMax H3 |
 | `breeze` | breeze-tts | 3.12 | Breeze-TTS-2 |
 | `qwen` | 无，`qwen-tts` 包 | 3.12，cu130 | Qwen3-TTS 1.7B Base |
 | `irodori` | Irodori-TTS | 3.10，cu128 | Irodori-TTS v4.1 Small、Semantic-DACVAE |

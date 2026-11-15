@@ -1,16 +1,28 @@
 {
   "image": {
     "1": {
-      "class_type": "UnetLoaderGGUF",
+      "class_type": "UNETLoader",
       "inputs": {
-        "unet_name": "flux-2-klein-9b-Q8_0.gguf"
+        "unet_name": "moss_image_sft_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "15": {
+      "class_type": "SkipLayerGuidanceDiTSimple",
+      "inputs": {
+        "double_layers": "",
+        "single_layers": "22",
+        "start_percent": 0,
+        "end_percent": 0.5,
+        "model": ["1", 0]
       }
     },
     "2": {
       "class_type": "CLIPLoader",
       "inputs": {
-        "clip_name": "qwen_3_8b_fp8mixed.safetensors",
-        "type": "flux2"
+        "clip_name": "qwen3.5_9b_w4a8_gptq.safetensors",
+        "type": "moss_image",
+        "device": "default"
       }
     },
     "3": {
@@ -22,14 +34,15 @@
     "4": {
       "class_type": "CLIPTextEncode",
       "inputs": {
-        "clip": ["2", 0],
-        "text": ""
+        "text": "",
+        "clip": ["2", 0]
       }
     },
     "5": {
-      "class_type": "ConditioningZeroOut",
+      "class_type": "CLIPTextEncode",
       "inputs": {
-        "conditioning": ["4", 0]
+        "text": "nsfw, worst quality, bad anatomy, watermark, jpeg artifact",
+        "clip": ["2", 0]
       }
     },
     "6": {
@@ -41,56 +54,32 @@
       }
     },
     "7": {
-      "class_type": "Flux2Scheduler",
+      "class_type": "KSampler",
       "inputs": {
-        "steps": 4,
-        "width": 1536,
-        "height": 1024
-      }
-    },
-    "8": {
-      "class_type": "KSamplerSelect",
-      "inputs": {
-        "sampler_name": "euler"
-      }
-    },
-    "9": {
-      "class_type": "CFGGuider",
-      "inputs": {
-        "model": ["1", 0],
+        "seed": 0,
+        "steps": 25,
+        "cfg": 2.5,
+        "sampler_name": "er_sde",
+        "scheduler": "simple",
+        "denoise": 1,
+        "model": ["15", 0],
         "positive": ["4", 0],
         "negative": ["5", 0],
-        "cfg": 1.0
-      }
-    },
-    "10": {
-      "class_type": "RandomNoise",
-      "inputs": {
-        "noise_seed": 0
-      }
-    },
-    "11": {
-      "class_type": "SamplerCustomAdvanced",
-      "inputs": {
-        "noise": ["10", 0],
-        "guider": ["9", 0],
-        "sampler": ["8", 0],
-        "sigmas": ["7", 0],
         "latent_image": ["6", 0]
       }
     },
-    "12": {
+    "8": {
       "class_type": "VAEDecode",
       "inputs": {
-        "samples": ["11", 0],
+        "samples": ["7", 0],
         "vae": ["3", 0]
       }
     },
-    "13": {
+    "9": {
       "class_type": "SaveImage",
       "inputs": {
-        "images": ["12", 0],
-        "filename_prefix": "anki_scene"
+        "filename_prefix": "anki_scene",
+        "images": ["8", 0]
       }
     }
   },
@@ -203,6 +192,6 @@
       }
     }
   },
-  "imageStyle": "Japanese cute moe anime illustration, a flat cel-painted animation still. Every character is a girl in kemonomimi animal-girl form: human-shaped, with the animal ears, tail, wings, fins or horns of her species, and hair and outfit colored to match it. Slender teenage proportions, refined delicate features, large detailed eyes with layered irises and hard-edged highlights. The characters carry clean ink outlines, and colour on them is laid in large flat areas with at most two tones per surface, a base and one hard-edged shadow shape, no gradients. The room behind them is a painted background layer without outlines, in fewer values and lower contrast than the characters, its shapes grouped into large masses. Everything is in sharp focus, near and far alike. Detail is concentrated on the faces, the hands and the key prop, while large areas stay quiet. Wide landscape composition. One clear focal action, readable at a glance. Every surface is blank and unlettered: paper is plain, signs are empty, labels are smooth.",
+  "imageStyle": "masterpiece, best quality, highres, anime screencap, moe, cel shading, flat color, clean lineart, kemonomimi, animal girl, animal ears, tail, large detailed eyes, painted background, sharp focus, wide shot, landscape composition, no text, blank signs\n\nEach animal in the scene is drawn as one girl with a human face and human body, wearing only the ears and tail of her own animal, her hair and outfit colored to match it. Draw exactly the characters the scene names.",
   "videoStyle": "2D-animated cute moe anime, Japanese style, matching the style of the reference frame. Every character stays a girl in kemonomimi animal-girl form, keeping the animal ears, tail, wings or fins she has in the reference frame. The characters carry clean ink outlines over large flat areas of colour, at most two tones per surface and no gradients; the background stays a painted layer without outlines, in fewer values and lower contrast than the characters. Every surface stays blank and unlettered: paper is plain, signs are empty."
 }

@@ -31,8 +31,6 @@ export interface Component {
   base?: Name;
   /** Installed with --no-deps into the component's own `packages/`, ahead of the base venv. */
   packages?: string[];
-  /** ComfyUI custom nodes, checked out under `data/custom_nodes/<name>`. */
-  nodes?: Record<string, Checkout>;
   weights: Weights[];
 }
 
@@ -59,28 +57,20 @@ export const manifest: Record<Name, Component> = {
     // cu130 is required: comfy/quant_ops.py turns comfy-kitchen's CUDA backend off below CUDA 13,
     // and NVFP4 weights then run on eager PyTorch kernels, slower than fp8.
     python: { version: '3.12', lock: 'comfyui', index: cu130 },
-    nodes: {
-      'ComfyUI-GGUF': {
-        repository: 'https://github.com/city96/ComfyUI-GGUF.git',
-        revision: '6ea2651e7df66d7585f6ffee804b20e92fb38b8a',
-      },
-    },
     weights: [
       {
-        repository: 'Comfy-Org/Flux-2-Klein-9B',
-        revision: '1138ce884c8e977cdacacbe779784fec4426bb3f',
+        // The ComfyUI-format release: int8 DiT plus the 4-bit text encoder fit 16 GB together.
+        repository: 'Comfy-Org/MOSS-Image',
+        revision: '2929efe3cdd506c0a430bcfca70a9a8d805cc095',
         files: {
-          ...comfyModels('split_files/vae/flux2-vae.safetensors', 'vae/'),
           ...comfyModels(
-            'split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors',
-            'text_encoders/',
+            'diffusion_models/moss_image_sft_int8_convrot.safetensors',
+            'diffusion_models/',
           ),
+          ...comfyModels('text_encoders/qwen3.5_9b_w4a8_gptq.safetensors', 'text_encoders/'),
+          ...comfyModels('loras/moss_image_edit_lora_rank_64_bf16.safetensors', 'loras/'),
+          ...comfyModels('vae/flux2-vae.safetensors', 'vae/'),
         },
-      },
-      {
-        repository: 'unsloth/FLUX.2-klein-9B-GGUF',
-        revision: 'fde8634245fe6b749a221c25b34672b5b8fbd079',
-        files: comfyModels('flux-2-klein-9b-Q8_0.gguf', 'unet/'),
       },
       {
         repository: 'Comfy-Org/MiniMax-H3',

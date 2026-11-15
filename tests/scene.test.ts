@@ -67,7 +67,7 @@ test('image generation frees speech VRAM on the model host, then returns the fil
   );
   expect(readFileSync(output, 'utf8')).toBe('image-bytes');
   expect(String(prompts[0]?.['4']?.inputs.text)).toEndWith('Scene: a cat');
-  expect(prompts[0]?.['10']?.inputs.noise_seed).toBe(5);
+  expect(prompts[0]?.['7']?.inputs.seed).toBe(5);
   expect(freed()).toBe(true);
 });
 

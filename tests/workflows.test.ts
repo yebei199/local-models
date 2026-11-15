@@ -18,14 +18,8 @@ const ui = (name: string) =>
 const pairs = [
   {
     kind: 'image',
-    source: 'klein_t2i',
-    filled: {
-      '4': ['text'],
-      '6': ['width', 'height'],
-      '7': ['width', 'height'],
-      '10': ['noise_seed'],
-      '13': ['filename_prefix'],
-    },
+    source: 'moss_t2i',
+    filled: { '4': ['text'], '6': ['width', 'height'], '7': ['seed'], '9': ['filename_prefix'] },
     injected: [] as string[],
   },
   {

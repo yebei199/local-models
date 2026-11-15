@@ -1,4 +1,4 @@
-// Submit the frozen Klein/H3 workflows and return their media without retaining GPU weights.
+// Submit the frozen MOSS-Image/H3 workflows and return their media without retaining GPU weights.
 import { randomInt, randomUUID } from 'node:crypto';
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
@@ -23,9 +23,9 @@ function workflow(kind: Kind, r: SceneRequest, firstFrame?: string): Graph {
   };
   const { prompt, width, height, seed } = r;
   if (kind === 'image') {
-    inputs('10').noise_seed = seed;
+    inputs('7').seed = seed;
     inputs('4').text = prompt;
-    for (const key of ['6', '7']) Object.assign(inputs(key), { width, height });
+    Object.assign(inputs('6'), { width, height });
   } else {
     inputs('10').noise_seed = seed;
     Object.assign(inputs('6'), { prompt, width, height, length: r.length });

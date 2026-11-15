@@ -12,7 +12,7 @@
 它于 2026-11 从 nixos_config 迁出，之后不再用 nix：每台主机克隆一份检出，`bun run setup` 按本机的 config.json
 装模型、服务和命令。nixos_config 只引用 `skills/`；explore 仓库不再参与部署。
 
-命令用法、模型主机准备和安装配置见 [README.md](README.md)，这里不重复。TTS 模型试听结论见 [docs/tts-models.md](docs/tts-models.md)，翻译模型的见 [docs/translation-models.md](docs/translation-models.md)，语音转文字的见 [docs/asr-models.md](docs/asr-models.md)，音乐模型的见 [docs/music-models.md](docs/music-models.md)（音乐不进本仓库的命令，只在 pc3 上试跑）。
+命令用法、模型主机准备和安装配置见 [README.md](README.md)，这里不重复。TTS 模型试听结论见 [docs/tts-models.md](docs/tts-models.md)，翻译模型的见 [docs/translation-models.md](docs/translation-models.md)，语音转文字的见 [docs/asr-models.md](docs/asr-models.md)，生图的见 [docs/image-models.md](docs/image-models.md)，音乐模型的见 [docs/music-models.md](docs/music-models.md)（音乐不进本仓库的命令，只在 pc3 上试跑）。
 
 ## 使用场景
 
@@ -110,7 +110,7 @@ src/
   translate.ts          translate 命令：文本、文档按段、字幕按条，整篇译完才写文件
   wav.ts                给模型返回的裸 PCM 加 WAV 头
   scene.ts              scene-image、scene-video：提交 ComfyUI 工作流、取回产物、释放权重
-  workflows.json        冻结的 image（Flux2 Klein GGUF）、video（MiniMax H3）节点图及风格前缀，由 klein_t2i、h3_i2v 导出
+  workflows.json        冻结的 image（MOSS-Image）、video（MiniMax H3）节点图及风格前缀，由 moss_t2i、h3_i2v 导出
   narrate.ts            scene-narrate：用 ffmpeg 拼环境声、整句、单词旁白
   show.ts               scene-show：开 mpv 窗口，只关自己记录过的进程组
   backend.ts            单元用的 start（启动 ComfyUI）、wait（等端口）、vram（显存守卫）
@@ -204,8 +204,8 @@ bun run build   # 前端构建到 web/dist；开发时 cd web && bunx vite，/ap
 
 **工作流**
 
-- `workflows.json` 是冻结数据，只由 `scene.ts` 的 `workflow` 改写固定节点：`10` 的 seed；image 的
-  `4`、`6`、`7`；video 的 `6`，以及带首帧时注入的 `5`。
+- `workflows.json` 是冻结数据，只由 `scene.ts` 的 `workflow` 改写固定节点：image 的 `4`（提示词）、`6`（尺寸）、
+  `7`（seed）；video 的 `6`、`10`（seed），以及带首帧时注入的 `5`。
   改图时节点 id 要同步。
 - `comfyui/workflows/` 的界面格式是真源，`tests/workflows.test.ts` 检查 `workflows.json` 和它的节点、连线、固定参数一致。
   改了界面格式就在浏览器里重新导出 API 格式，再按上面的规则改回 `workflows.json`。
