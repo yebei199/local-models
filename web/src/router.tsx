@@ -8,6 +8,13 @@ const root = createRootRoute({
   component: () => (
     <PlayerProvider>
       <Outlet />
+      <footer className='p-4 text-center text-xs text-muted-foreground'>
+        local-models © 2026 yebei199 · AGPL-3.0 · Source:{' '}
+        <a className='underline' href='https://github.com/yebei199/local-models'>
+          https://github.com/yebei199/local-models
+        </a>{' '}
+        · Provided without warranty.
+      </footer>
       <PlayerBar />
     </PlayerProvider>
   ),

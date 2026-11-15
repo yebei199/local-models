@@ -171,5 +171,5 @@ bun run build   # 前端构建到 web/dist；cd web && bunx vite 开发，/api �
 
 ## 许可
 
-本仓库代码是 GPL-3.0。Hy-MT2 的权重是 Apache 2.0，llama.cpp 是 MIT。Breeze-TTS-2 的代码是 Apache 2.0，**权重和生成的音频仅限研究和非商业用途**，
+本仓库代码是 AGPL-3.0-only，附加条款（第 7(b)(c) 条）要求所有衍生作品保留署名 `Based on local-models by yebei199 - https://github.com/yebei199/local-models`，有界面的要在其「关于/法律声明」处显示，修改版须标明修改，详见 [LICENSE](LICENSE)。Hy-MT2 的权重是 Apache 2.0，llama.cpp 是 MIT。Breeze-TTS-2 的代码是 Apache 2.0，**权重和生成的音频仅限研究和非商业用途**，
 本仓库不含权重。

@@ -212,7 +212,7 @@ bun run build   # 前端构建到 web/dist；开发时 cd web && bunx vite，/ap
 
 **许可与内容**
 
-- 代码是 GPL-3.0-only。Breeze 权重和输出仅限研究和非商业用途，所以 `video` 路由不能指向它。
+- 代码是 AGPL-3.0-only。Breeze 权重和输出仅限研究和非商业用途，所以 `video` 路由不能指向它。
 - 音频和参考声音不进仓库。
 
 **web 页面**
