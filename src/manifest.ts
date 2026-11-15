@@ -59,7 +59,8 @@ export const manifest: Record<Name, Component> = {
     python: { version: '3.12', lock: 'comfyui', index: cu130 },
     weights: [
       {
-        // The ComfyUI-format release: int8 DiT plus the 4-bit text encoder fit 16 GB together.
+        // The ComfyUI-format release. The workflows use the bf16 text encoder, which DynamicVRAM
+        // streams from disk; the 4-bit one fits beside the DiT and stays as the fallback.
         repository: 'Comfy-Org/MOSS-Image',
         revision: '2929efe3cdd506c0a430bcfca70a9a8d805cc095',
         files: {
@@ -67,6 +68,7 @@ export const manifest: Record<Name, Component> = {
             'diffusion_models/moss_image_sft_int8_convrot.safetensors',
             'diffusion_models/',
           ),
+          ...comfyModels('text_encoders/qwen3.5_9b_bf16.safetensors', 'text_encoders/'),
           ...comfyModels('text_encoders/qwen3.5_9b_w4a8_gptq.safetensors', 'text_encoders/'),
           ...comfyModels('loras/moss_image_edit_lora_rank_64_bf16.safetensors', 'loras/'),
           ...comfyModels('vae/flux2-vae.safetensors', 'vae/'),

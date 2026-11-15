@@ -82,7 +82,7 @@ scene-narrate VIDEO SENTENCE.wav WORD.wav OUT.mp4   # 环境声后接整句、�
 scene-show FILE                                     # 开窗口看产物，scene-show --clear 全部关掉
 ```
 
-- 模型是 MOSS-Image（Apache 2.0），1536×1024 约 15 秒，冷启动约 35 秒。
+- 模型是 MOSS-Image（Apache 2.0），1536×1024 约 15 到 22 秒，冷启动更久。
 - 不加 `--raw` 时会自动套固定风格前缀：二次元标签、负面词，并把场景里的动物画成兽耳娘。场景用英文写，
   明确写出角色和数量（`one rabbit girl`），只写「a rabbit」时偶尔会画成一群或画成动物脸。
 - `--raw` 时提示词原样送入。二次元图用标签写法（`masterpiece, best quality, 1girl, cat ears, ...`）好于整句；
