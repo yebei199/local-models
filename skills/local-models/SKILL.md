@@ -17,7 +17,7 @@ tts batch --batch-file F.jsonl   # 每行 {"text","output","lang","use"}，可�
 | `--use` | 用途 | en、zh | ja |
 |---|---|---|---|
 | `anki`（默认） | 自用制卡 | Breeze | Irodori |
-| `video` | 公开视频 | en：Ming，zh：Ming tiny | Ming |
+| `video` | 公开视频 | Ming tiny | Ming |
 
 - `--lang` 必填，命令不检测语言。按卡片或稿子的语言传，不要按字面猜：`学校` 这样的纯汉字词字面上分不出日语和中文。
 - 只要内容会公开发布就用 `--use video`。Breeze 的许可禁止任何变现内容，没有创作者例外。

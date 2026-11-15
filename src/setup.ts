@@ -159,7 +159,7 @@ function engines(tts: Tts, models: string, cuda: string): Record<string, Engine>
 
 const defaultRoutes = {
   anki: { en: 'breeze', zh: 'breeze', ja: 'irodori' },
-  video: { en: 'ming', zh: 'ming-tiny', ja: 'ming' },
+  video: { en: 'ming-tiny', zh: 'ming-tiny', ja: 'ming' },
 };
 
 /** Routes keep only engines this host has, so a host without Irodori still starts its gate. */

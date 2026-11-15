@@ -21,7 +21,7 @@
 | 用途 | 英语 | 中文 | 日语 |
 |---|---|---|---|
 | `anki` | Breeze | Breeze | Irodori |
-| `video` | Ming | Ming tiny | Ming |
+| `video` | Ming tiny | Ming tiny | Ming |
 
 音色默认用 `tts.voices` 里该用途、该语言的参考。`tts synth` 可加 `--voice WAV --voice-text 文字稿`（两个必须同时给，文字稿要与
 音频一字不差）临时替换，也可加 `--instruction`、`--seed`。选型结论见 [docs/tts-models.md](docs/tts-models.md)。
