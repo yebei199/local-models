@@ -18,7 +18,7 @@
 | Fun-CosyVoice3 0.5B | 中英日等 | 听感太差 | Apache 2.0 | 已淘汰，已删除 |
 | Higgs TTS 3 4B | 中英日等 | 盲听 18 题没拿到一次第一 | Creator Use Grant | 已淘汰，已删除 |
 | Kokoro 82M | 英 | 不再比较 | Apache 2.0 | 已删除 |
-| Fish S2 Pro | 中英日等 | 未试听 | 研究许可 | 依赖未装好，未评估，已删除 |
+| Fish S2 Pro 5B | 中英日等 | 制卡盲听 9 题赢 4，和现有路由打平；语气标签有效 | Fish Audio 研究许可，任何营收都要商业授权 | 未选，见下文 |
 | MOSS-TTS-Local-Transformer-v1.5 4B | 中英日等 31 种 | 口播盲听三句都输给 Ming：更自然，但不抓耳 | Apache 2.0 | 已淘汰，已删除 |
 
 听感由用户判定。VoxCPM2 的 Whisper 转写准确率不低于 Qwen，仍被听感淘汰，所以转写比对只能
@@ -106,4 +106,27 @@
 - 结论：不接入，权重和环境已删。
 - 英语视频此前用 0.5B 不是比较出来的：tiny 只为中文口播的问题引入，英语一直没换。单独让 tiny 念同一句英语后，
   用户定英语视频也用 tiny。
+
+## Fish S2 Pro 和 audio.cpp
+
+2026-11-18 用 audio.cpp v0.9.5 跑 Fish S2 Pro 的 bf16 GGUF（`audio-cpp/audio.cpp-gguf`，ModelScope 有同哈希的镜像）。
+上次卡在 Python 依赖，这次绕开了。许可和 Breeze 一样不许变现，所以只和制卡路由比：同一组制卡参考音、同 9 句新文字，
+A、B 顺序随机，响度拉齐，用户在试听页上点选。
+
+| 语言 | 对手 | Fish 赢 |
+|---|---|---|
+| 中文 | Breeze | 1 / 3 |
+| 英文 | Breeze | 2 / 3 |
+| 日语 | Irodori | 1 / 3 |
+
+合计 4 / 9，和现有路由分不出高下，换引擎没有收益。方括号语气标签（`[叹气]`、`[excited]`、`[ため息]`）三种语言都生效，
+标签不会被念出来；这是 Breeze 和 Irodori 没有的，但制卡用的是安静参考，用不上。ASR 转写 9 句全部逐字正确。
+
+- 速度：加载 17 秒，之后每句 2.4 到 4 秒，约 0.6 倍实时；bf16 占显存约 10 GB。
+- audio.cpp 在 Linux 上没有可用的 CUDA 13 命令行或服务：发布包里只有 `libaudiocpp.so` 和 C 头文件，带服务的只有
+  Colab 版（链接 CUDA 12、NCCL、OpenSSL）。这次是 Python ctypes 直接调 C 接口，`LD_LIBRARY_PATH` 补上包里的
+  cudart 和 cuBLAS、驱动目录和 nix store 里 gcc 的 libgomp、libstdc++。
+- 它也支持 Breeze、Ming（0.5B 和 tiny）、Irodori、Qwen3-TTS、Qwen3-ASR，但 Ming tiny 不支持表演指令，
+  视频中文口播靠它；ASR 要换成 Silero VAD，逐段判语言和按句切行要重写。所以不把现有引擎迁过去。
+- Fish 的新模型 Drama 3（Fish Audio 社区许可，营收低于门槛可商用）最小的 Q2 包 15.9 GB，16 GB 卡放不下，没测。
 
