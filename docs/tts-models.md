@@ -18,7 +18,7 @@
 | Fun-CosyVoice3 0.5B | 中英日等 | 听感太差 | Apache 2.0 | 已淘汰，已删除 |
 | Higgs TTS 3 4B | 中英日等 | 盲听 18 题没拿到一次第一 | Creator Use Grant | 已淘汰，已删除 |
 | Kokoro 82M | 英 | 不再比较 | Apache 2.0 | 已删除 |
-| Fish S2 Pro 5B | 中英日等 | 制卡盲听 9 题赢 4，和现有路由打平；语气标签有效 | Fish Audio 研究许可，任何营收都要商业授权 | 未选，见下文 |
+| Fish S2 Pro 5B | 中英日等 | 制卡盲听 9 题赢 4，和现有路由打平；语气标签有效 | Fish Audio 研究许可，任何营收都要商业授权 | 已淘汰，已删除 |
 | Fish Drama 3（35B-A3B MoE，Q3 专家） | 中英日等 | 口播短句盲听 5 题赢 3，Ming 1、S2 0；样本少 | Fish Audio 社区许可：年营收 50 万美元以下可商用，须标注 Built with Fish Audio | 候选，见下文 |
 | MOSS-TTS-Local-Transformer-v1.5 4B | 中英日等 31 种 | 口播盲听三句都输给 Ming：更自然，但不抓耳 | Apache 2.0 | 已淘汰，已删除 |
 
@@ -160,4 +160,4 @@ Drama 3 在这张卡上的跑法（audio.cpp v0.9.5 的库已含 `fish_drama3`�
   能跑的是 `moe_cpu_expert_layers=22`、`fish_drama3.codec_backend=cpu`、`fish_drama3.context_length=2048`：
   显存峰值 14.9 GB（含桌面约 3.3 GB），内存 9.7 GB，加载 17 秒，之后约 1.5 倍实时（首句 5 倍）。
 - 许可和 S2 不同：S2 任何营收都算商用；Drama 3 年营收 50 万美元以下可商用，须标注，禁止未经同意模仿可辨认的真人。
-  所以公开视频能考虑它，S2 不能。
+  所以公开视频能考虑它，S2 不能。S2 的权重、试听页和音频已删除，audio.cpp 的库留给 Drama 3。
