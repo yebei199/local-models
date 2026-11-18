@@ -1,6 +1,6 @@
 // Typed reads of model-web's JSON API through TanStack Query.
 import { queryOptions } from '@tanstack/react-query';
-import type { Audition, Entry, Machine } from '../../../src/audition';
+import type { Audition, Entry, Machine, Picks, PickUpdate } from '../../../src/audition';
 
 /** Server and app are built from one commit and share these types, so the body is trusted as T;
  * a non-2xx answer carries the server's own message, which the page shows verbatim. */
@@ -28,3 +28,21 @@ export const auditionQuery = (name: string) =>
     queryFn: () => get<Audition>(`/api/auditions/${encodeURIComponent(name)}`),
     retry: false,
   });
+
+export const picksQuery = (name: string) =>
+  queryOptions({
+    queryKey: ['picks', name],
+    queryFn: () => get<Picks>(`/api/picks/${encodeURIComponent(name)}`),
+    retry: false,
+  });
+
+/** The server answers with every pick after the update, so the page shows what is stored. */
+export async function savePick(name: string, update: PickUpdate): Promise<Picks> {
+  const response = await fetch(`/api/picks/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(update),
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return (await response.json()) as Picks;
+}

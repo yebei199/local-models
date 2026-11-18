@@ -67,7 +67,7 @@ RTX 5080 上的实测：冷启动约 35 秒，之后实时率约 0.8。不需要
 
 试听页由 `local-models-web.service` 发布，页面由 `web/` 的 React 前端渲染：只绑回环的 8096，Caddy 提供 tailnet 上的 HTTPS 入口 18096。把一个
 `.html`，或带 `audition.json` / `index.html` 的目录放进 `web.directory`（默认 `~/.local/share/local-models/web`），
-首页就会列出它。盲听的答案不要放进去，目录里的文件 tailnet 上都能读到。
+首页就会列出它。盲听的答案不要放进去，目录里的文件 tailnet 上都能读到。听者在页面上逐行选的版本和备注存进同目录的 `picks.json`。
 
 ## 模型主机准备
 

@@ -119,7 +119,7 @@ src/
   install.ts            按 manifest 检出代码、同步 venv、下载并校验权重；跳过后端正在运行的组件
   setup.ts              读 config.json，写出 systemd 单元、网关配置 gate.json 和 ~/.local/bin 下的命令
   web.ts                model-web：托管前端构建产物和 /api，发布页面目录、读机器状态、支持 Range
-  audition.ts           audition.json 和 /api 的类型，服务端和前端共用
+  audition.ts           audition.json、picks.json 和 /api 的类型与校验，服务端和前端共用
 web/                    前端：React 19、TanStack Router 和 Query、Tailwind 4，Vite 构建
   src/components/       player.tsx 是全站唯一的播放器；ui/ 照 meow_web 的 cva 写法
   src/routes/           首页和试听页
@@ -222,6 +222,9 @@ bun run build   # 前端构建到 web/dist；开发时 cd web && bunx vite，/ap
   缺的版本不写，不留占位。已删除的模型不留在页面上。
 - 切换版本总是从头播放，不要加进度同步：同一句的两个版本语速和停顿不同，同步过去的位置落在别处，反而没法对比重读。
 - 页面目录里的文件 tailnet 上都读得到。盲听的版本对应表和量测数据放在目录外，点开头的路径只是兜底。
+- 听者在页面上逐行选版本（或“差不多”“都不行”）并写备注，经 `PUT /api/picks/<目录>` 存进同目录的 `picks.json`。
+  这是服务唯一可写的路径；选择按章节标题和行名记录，所以两者在 `audition.json` 里必须唯一，服务端拒绝重名。
+  读结论就读 `picks.json`，不用再让用户口述。
 - 音频必须支持 Range 并返回 `Cache-Control: no-cache`，否则浏览器不能拖动，改过的页面也会读到旧缓存。
 - 改了 `web.ts` 或 `web/` 后重跑 `bun run setup`，它会重新构建前端并重启网页服务。
 - 试听目录的地址就是它在页面目录里的路径（`/voices/`），服务端发前端外壳，前端从 `/api/auditions/voices`

@@ -1,7 +1,7 @@
 // model-web: the page directory and the API as a browser sees them, over a real loopback socket.
 
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { Entry } from '../src/audition';
 import { fakeTool, freePort, scratch } from './helpers';
@@ -186,11 +186,97 @@ describe('auditions', () => {
     },
   );
 
+  test('refuses a repeated row label, since picks are keyed by it', async () => {
+    const repeated = structuredClone(audition);
+    const rows = repeated.sections[0]?.rows ?? [];
+    rows.push(structuredClone(rows[1] as (typeof rows)[number]));
+    const response = await fetch(
+      `${await serve(withAudition(JSON.stringify(repeated)))}/api/auditions/voices`,
+    );
+    expect(response.status).toBe(500);
+    expect(await response.text()).toContain('第二句');
+  });
+
   test('serves the app assets', async () => {
     const base = await serve(site());
     const script = await fetch(`${base}/assets/index.js`);
     expect(script.headers.get('Content-Type')).toContain('javascript');
     expect((await fetch(`${base}/assets/missing.js`)).status).toBe(404);
+  });
+});
+
+describe('picks', () => {
+  const audition = {
+    title: '盲听',
+    sections: [
+      {
+        title: '中文',
+        rows: [
+          {
+            label: 'zh1',
+            takes: [
+              { src: 'a.wav', label: 'A' },
+              { src: 'b.wav', label: 'B' },
+            ],
+          },
+          { label: 'tag', takes: [{ src: 't.wav', label: 'Fish' }] },
+        ],
+      },
+    ],
+  };
+
+  async function page(): Promise<{ base: string; root: string }> {
+    const root = site();
+    mkdirSync(join(root, 'blind'));
+    writeFileSync(join(root, 'blind/audition.json'), JSON.stringify(audition));
+    return { base: await serve(root), root };
+  }
+
+  const put = (base: string, body: unknown, name = 'blind') =>
+    fetch(`${base}/api/picks/${name}`, { method: 'PUT', body: JSON.stringify(body) });
+
+  test('start empty, then keep each row the listener answers', async () => {
+    const { base, root } = await page();
+    expect(await (await fetch(`${base}/api/picks/blind`)).json()).toEqual({});
+    await put(base, { section: '中文', row: 'zh1', pick: { take: 'B' } });
+    await put(base, { section: '中文', row: 'tag', pick: { note: ' 叹气没生效 ' } });
+    const stored = { 中文: { zh1: { take: 'B' }, tag: { note: '叹气没生效' } } };
+    expect(await (await fetch(`${base}/api/picks/blind`)).json()).toEqual(stored);
+    expect(JSON.parse(readFileSync(join(root, 'blind/picks.json'), 'utf8'))).toEqual(stored);
+  });
+
+  test('an empty pick clears its row', async () => {
+    const { base } = await page();
+    await put(base, { section: '中文', row: 'zh1', pick: { verdict: 'tie' } });
+    const cleared = await put(base, { section: '中文', row: 'zh1', pick: {} });
+    expect(await cleared.json()).toEqual({});
+  });
+
+  test.each([
+    [{ section: '中文', row: 'zh1', pick: { take: 'C' } }, 'no take C'],
+    [{ section: '中文', row: 'zh9', pick: { take: 'A' } }, 'no row zh9'],
+    [{ section: '中文', row: 'zh1', pick: { take: 'A', verdict: 'none' } }, 'a take or a verdict'],
+    [{ section: '中文', row: 'zh1', pick: { verdict: 'best' } }, 'verdict'],
+    [{ section: '中文', row: 'zh1', pick: 'A' }, 'section, row, pick'],
+  ])('refuses %j', async (body, message) => {
+    const { base } = await page();
+    const response = await put(base, body);
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain(message);
+    expect(await (await fetch(`${base}/api/picks/blind`)).json()).toEqual({});
+  });
+
+  test('exist only for auditions', async () => {
+    const { base } = await page();
+    expect((await put(base, {}, 'music')).status).toBe(404);
+    expect((await put(base, {}, '.secret')).status).toBe(404);
+  });
+
+  test('are the only writable path', async () => {
+    const { base } = await page();
+    expect((await fetch(`${base}/api/pages`, { method: 'PUT' })).status).toBe(405);
+    expect((await fetch(`${base}/blind/`, { method: 'PUT' })).status).toBe(405);
+    expect((await fetch(`${base}/api/picks/blind`, { method: 'DELETE' })).status).toBe(405);
   });
 });
 

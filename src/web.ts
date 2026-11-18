@@ -1,12 +1,30 @@
 // Serve the browser app, its JSON API and the page directory on loopback; Caddy adds TLS.
-import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join, sep } from 'node:path';
-import { type Entry, type Machine, parseAudition, takeCount } from './audition';
+import {
+  applyPick,
+  type Entry,
+  type Machine,
+  type Picks,
+  parseAudition,
+  parsePickUpdate,
+  takeCount,
+} from './audition';
 import { portFromEnvironment } from './backend';
 
 /** Pages and their audio change together, so browsers must revalidate; seeking audio needs Range. */
 const common = { 'Cache-Control': 'no-cache', 'Accept-Ranges': 'bytes' };
 const notFound = () => new Response('Not found', { status: 404 });
+const reading = (request: Request) => request.method === 'GET' || request.method === 'HEAD';
+const notAllowed = (allow: string) =>
+  new Response('Method not allowed', { status: 405, headers: { Allow: allow } });
 
 /** Resolve a URL path inside the root. Dot paths stay private, and the real-path check keeps a
  * symlink or an encoded separator from reaching files the tailnet should not read. */
@@ -136,8 +154,46 @@ async function audition(root: string, name: string): Promise<Response> {
   }
 }
 
+async function storedPicks(file: string): Promise<Picks> {
+  return existsSync(file) ? ((await Bun.file(file).json()) as Picks) : {};
+}
+
+/** The listener's picks live in the audition's own directory, so they move and vanish with it.
+ * Each update is folded in and the file replaced by rename, so a reader never sees half a file;
+ * the server is one thread and nothing awaits between reading and writing, so updates cannot
+ * interleave. */
+async function picks(root: string, name: string, request: Request): Promise<Response> {
+  const path = locate(root, name);
+  if (!path || !existsSync(join(path, 'audition.json'))) return notFound();
+  const file = join(path, 'picks.json');
+  if (request.method !== 'PUT') return Response.json(await storedPicks(file), { headers: common });
+  let page: ReturnType<typeof parseAudition>;
+  let body: string;
+  try {
+    page = parseAudition(await Bun.file(join(path, 'audition.json')).text());
+    body = await request.text();
+  } catch (error) {
+    return new Response(`audition.json: ${String(error)}`, { status: 500 });
+  }
+  try {
+    const update = parsePickUpdate(body, page);
+    const next = applyPick(await storedPicks(file), update);
+    writeFileSync(`${file}.part`, `${JSON.stringify(next, null, 1)}\n`);
+    renameSync(`${file}.part`, file);
+    return Response.json(next, { headers: common });
+  } catch (error) {
+    return new Response(String(error), { status: 400 });
+  }
+}
+
 /** The JSON the browser app reads; everything else under /api/ does not exist. */
-async function api(root: string, pathname: string): Promise<Response> {
+async function api(root: string, pathname: string, request: Request): Promise<Response> {
+  const pick = pathname.match(/^\/api\/picks\/([^/]+)$/)?.[1];
+  if (pick)
+    return reading(request) || request.method === 'PUT'
+      ? picks(root, pick, request)
+      : notAllowed('GET, HEAD, PUT');
+  if (!reading(request)) return notAllowed('GET, HEAD');
   if (pathname === '/api/pages') return Response.json(await entries(root), { headers: common });
   if (pathname === '/api/machine') return Response.json(machine(), { headers: common });
   const name = pathname.match(/^\/api\/auditions\/([^/]+)$/)?.[1];
@@ -151,14 +207,14 @@ function directory(path: string, shell: string): Response {
   return existsSync(index) ? send(index, null) : notFound();
 }
 
-/** Route one request; audition pages use relative audio paths, so directories need their slash. */
+/** Route one request; audition pages use relative audio paths, so directories need their slash.
+ * Only the listener's picks are writable; every other path is read-only. */
 async function respond(root: string, ui: string, request: Request): Promise<Response> {
-  if (request.method !== 'GET' && request.method !== 'HEAD')
-    return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
   const { pathname } = new URL(request.url);
+  if (pathname.startsWith('/api/')) return api(root, pathname, request);
+  if (!reading(request)) return notAllowed('GET, HEAD');
   const shell = join(ui, 'index.html');
   if (pathname === '/') return send(shell, null);
-  if (pathname.startsWith('/api/')) return api(root, pathname);
   if (pathname.startsWith('/assets/')) {
     const asset = locate(ui, pathname);
     return asset ? send(asset, null) : notFound();

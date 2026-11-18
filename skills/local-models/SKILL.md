@@ -39,6 +39,8 @@ tts batch --batch-file F.jsonl   # 每行 {"text","output","lang","use"}，可�
 - 试听交付给 URL，不要给文件路径，也不要用 `xdg-open`（这里只弹应用选择器）。把一个 `.html` 或带 `index.html` 的目录放进模型主机的
   `~/.local/share/local-models/web`，不用重启，地址是模型主机 tailnet 域名的 `https://…:18096/`。交付前 `curl` 确认能访问。
 - 这个目录全部可读：盲听的版本对应表和量测数据放在目录外，页面里只留匿名标签。
+- 用户在试听页上逐行点选版本、写备注，结果在页面目录的 `picks.json`（章节标题 → 行名 → `take`/`verdict`/`note`）。
+  揭晓时读这个文件，不要让用户把选择打字发过来。
 
 | 报错 | 含义 | 处理 |
 |---|---|---|
