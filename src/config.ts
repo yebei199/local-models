@@ -23,7 +23,7 @@ export interface HostConfig {
   /** Install root for model code, environments and weights. */
   models?: string;
   idleTime?: string;
-  /** systemd MemoryHigh for the model gate and the model it runs, default "3G": what the model
+  /** systemd MemoryHigh for the model gate and the model it runs, default "8G": what the model
    * host's owner spares beside the desktop. Past it the kernel reclaims the unit's page cache, then
    * slows its allocations; nothing is killed. */
   gateMemoryHigh?: string;

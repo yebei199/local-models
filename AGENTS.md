@@ -158,7 +158,7 @@ bun run build   # 前端构建到 web/dist；开发时 cd web && bunx vite，/ap
 - 不要给 Breeze 加 `--fast-all`，它要 14.4 GiB。
 - 模型主机也是桌面，模型不能挤占桌面：`requiredVram` 既是启动前要的空闲显存，也是运行时的显存上限。网关每 2 秒查一次
   模型进程的显存，超了就杀掉它并在请求里报出用量，因为驱动没有单进程显存上限可设。内存由网关单元的 `MemoryMax`
-  （硬上限默认 8G，`gateMemoryMax` 可改；另有 `MemoryHigh` 默认 3G，`gateMemoryHigh` 可改，超了先回收缓存、再减速，用户平时只让出这么多）和 `MemorySwapMax=0` 封住，超了只 OOM 掉模型进程，`OOMPolicy=continue` 让网关活着报错。
+  （硬上限默认 8G，`gateMemoryMax` 可改；另有 `MemoryHigh` 默认 8G，`gateMemoryHigh` 可改，超了先回收缓存、再减速；用户为 Drama 3 的速度同意平时让出这么多）和 `MemorySwapMax=0` 封住，超了只 OOM 掉模型进程，`OOMPolicy=continue` 让网关活着报错。
   调大这两个值前先确认桌面还剩多少。
 
 **systemd 单元**

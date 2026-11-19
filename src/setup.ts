@@ -360,7 +360,7 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
           // The model host is also a desktop. Above MemoryHigh the unit's page cache goes first and
           // its allocations slow; a model that still reaches MemoryMax is OOM-killed inside the unit
           // instead of pushing the desktop into swap, and the gate lives on to say so.
-          MemoryHigh: config.gateMemoryHigh ?? '3G',
+          MemoryHigh: config.gateMemoryHigh ?? '8G',
           MemoryMax: config.gateMemoryMax ?? '8G',
           MemorySwapMax: 0,
           OOMPolicy: 'continue',

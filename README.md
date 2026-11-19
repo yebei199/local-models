@@ -171,7 +171,7 @@ cd ~/.local/share/local-models/src && git pull && bun run setup
 ```
 
 可选项：`models`（安装目录，默认 `~/.local/share/local-models/models`）、`idleTime`（默认 `30min`）、
-`gateMemoryHigh`、`gateMemoryMax`（网关和它跑的模型合计的内存，systemd 格式，不用 swap。`gateMemoryHigh` 默认 `3G`，是模型主机的主人平时让出的内存，超了先回收文件缓存、再让分配变慢，不杀进程；`gateMemoryMax` 默认 `8G`，是加载时允许的峰值，超了 OOM 掉模型）、
+`gateMemoryHigh`、`gateMemoryMax`（网关和它跑的模型合计的内存，systemd 格式，不用 swap。`gateMemoryHigh` 默认 `8G`，是模型主机的主人平时让出的内存，Drama 3 读专家的文件缓存要这么多才不至于慢 25 倍，超了先回收文件缓存、再让分配变慢，不杀进程；`gateMemoryMax` 默认 `8G`，是加载时允许的峰值，超了 OOM 掉模型）、
 `cudaLibraryPath`（默认 `/run/opengl-driver/lib`）、`web.directory`、`tts.routes`（默认见上面的路由表）、
 各引擎、`translate` 和 `asr` 的 `requiredVram`（MiB，默认值写在 `src/setup.ts`，来自实测峰值）、`ming-tiny` 的 `bits`（4 或 8，默认 8）、`drama3` 的 `expertCache`（每层留在显卡上的专家槽数，8 到 256，默认 64；每槽 40 层共约 54 MB，越大越快、越占显存）。
 各引擎的 `requiredVram` 同时是显存上限：模型运行中用得更多，网关会杀掉它并报错。
@@ -192,4 +192,4 @@ bun run build   # 前端构建到 web/dist；cd web && bunx vite 开发，/api �
 
 本仓库代码是 AGPL-3.0-only，附加条款（第 7(b)(c) 条）要求所有衍生作品保留署名 `Based on local-models by yebei199 - https://github.com/yebei199/local-models`，有界面的要在其「关于/法律声明」处显示，修改版须标明修改，详见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。Hy-MT2 的权重是 Apache 2.0，llama.cpp 是 MIT。Breeze-TTS-2 的代码是 Apache 2.0，**权重和生成的音频仅限研究和非商业用途**，
 本仓库不含权重。
-Drama 3 的权重按 Fish Audio 社区许可：年营收低于 50 万美元可商用，发布的作品要标注 “Built with Fish Audio”，不得未经同意模仿可辨认的真人；audio.cpp 是 MIT。
+Drama 3 的权重按 Fish Audio 社区许可：年营收低于 50 万美元可商用，发布的作品要标注 “Built with Fish Audio”，不得未经同意模仿可辨认的真人；audio.cpp 是 Apache 2.0。
