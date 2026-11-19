@@ -199,6 +199,9 @@ bun run build   # 前端构建到 web/dist；开发时 cd web && bunx vite，/ap
 
 **安装**
 
+- 部署不靠 ssh 传输：代码只经 git 推送，模型主机上由用户自己 `git pull` 和 `bun run setup`；权重和二进制只由 `install`
+  从 `manifest.ts` 钉住的地址下载并校验。AI 不经 ssh 远程跑 setup，也不用 scp、rsync 或手工 cp 把文件放进 `models` 目录：
+  手放的文件绕过了校验，`install` 按大小认作已有，出错也查不到来源。
 - 不碰正在运行的组件：`comfyui-backend` 或 `tts-backend` 在跑时，`install` 跳过对应组件，空闲后重跑 setup。
   在运行中的进程下面换代码或 venv，跑着的任务会断。
 - 改钉住的版本（提交、lock、权重 revision）后，要在模型主机上实跑对应的命令才算验证过；lock 用
