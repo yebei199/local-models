@@ -179,9 +179,12 @@ Drama 3 在这张卡上的跑法（audio.cpp v0.9.5 的库已含 `fish_drama3`�
   能跑的是 `moe_cpu_expert_layers=22`、`fish_drama3.codec_backend=cpu`、`fish_drama3.context_length=2048`：
   显存峰值 14.9 GB（含桌面约 3.3 GB），内存 9.7 GB，加载 17 秒，之后约 1.5 倍实时（首句 5 倍）。
 - 接进网关后它常驻 30 分钟，那 9.7 GB 是匿名内存，pc3 平时只剩约 13 GB，连发三个请求就把桌面挤进 swap，pc3 卡死重启。
-  之后改成按需读专家：`moe_disk_experts=true`，专家留在 GGUF 里，每层在显卡上留 `moe_expert_cache_size` 个槽（默认 32），
+  之后改成按需读专家：`moe_disk_experts=true`，专家留在 GGUF 里，每层在显卡上留 `moe_expert_cache_size` 个槽（默认 64），
   `moe_cpu_expert_layers=0`，编解码器回到显卡，参考音分块编码（`codec_encoder_chunk_samples=65536`）。
-  内存里只剩可回收的文件缓存；显存估计约 9 GB（主干约 4 GB、32 槽约 2.2 GB、编解码器和缓冲）。这些都是估算：
+  内存里只剩可回收的文件缓存。按 GGUF 的张量表算：主干 5.2 GiB，编解码器 0.8 GiB，专家 40 层、每层 256 个，
+  Q3_K 下每个约 1.35 MB，一个槽 40 层合计约 54 MB。最初按 32 槽配 9000 MiB，算下来权重已占 7.7 GiB，
+  加缓冲会顶到上限，所以改成 64 槽、`requiredVram` 12000：权重约 9.3 GiB，留约 2 GiB 给 KV 缓存和缓冲。
+  16 GB 的卡上桌面最多用过约 3.2 GB，12 GB 是能让出的上限。这些都是估算：
   用户叫停了在 pc1、pc3 上的实测，速度、显存和内存都还没量过。`tts.socket` 也改成不开机自启，用时手动打开。
 - 许可和 S2 不同：S2 任何营收都算商用；Drama 3 年营收 50 万美元以下可商用，须标注，禁止未经同意模仿可辨认的真人。
   所以公开视频能考虑它，S2 不能。S2 的权重、试听页和音频已删除，audio.cpp 的库留给 Drama 3。
