@@ -357,9 +357,11 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
         run('gate.ts'),
         {
           TimeoutStartSec: 300,
-          // The model host is also a desktop: a model that outgrows this is OOM-killed inside the
-          // unit instead of pushing the desktop into swap, and the gate lives on to say so.
-          MemoryMax: config.gateMemoryMax ?? '3G',
+          // The model host is also a desktop. Above MemoryHigh the unit's page cache goes first and
+          // its allocations slow; a model that still reaches MemoryMax is OOM-killed inside the unit
+          // instead of pushing the desktop into swap, and the gate lives on to say so.
+          MemoryHigh: config.gateMemoryHigh ?? '3G',
+          MemoryMax: config.gateMemoryMax ?? '8G',
           MemorySwapMax: 0,
           OOMPolicy: 'continue',
         },

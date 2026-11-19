@@ -23,8 +23,12 @@ export interface HostConfig {
   /** Install root for model code, environments and weights. */
   models?: string;
   idleTime?: string;
-  /** systemd MemoryMax for the model gate and the model it runs, e.g. "3G"; it never swaps. The
-   * default is what the model host's owner spares beside the desktop. */
+  /** systemd MemoryHigh for the model gate and the model it runs, default "3G": what the model
+   * host's owner spares beside the desktop. Past it the kernel reclaims the unit's page cache, then
+   * slows its allocations; nothing is killed. */
+  gateMemoryHigh?: string;
+  /** systemd MemoryMax, default "8G": the peak a model may reach while loading; past it the model is
+   * OOM-killed. The unit never swaps. */
   gateMemoryMax?: string;
   cudaLibraryPath?: string;
   comfyui?: { url?: string; serve?: boolean };

@@ -171,7 +171,7 @@ cd ~/.local/share/local-models/src && git pull && bun run setup
 ```
 
 可选项：`models`（安装目录，默认 `~/.local/share/local-models/models`）、`idleTime`（默认 `30min`）、
-`gateMemoryMax`（网关和它跑的模型合计的内存上限，systemd 格式，默认 `3G`，即模型主机的主人最多让出的内存，不用 swap）、
+`gateMemoryHigh`、`gateMemoryMax`（网关和它跑的模型合计的内存，systemd 格式，不用 swap。`gateMemoryHigh` 默认 `3G`，是模型主机的主人平时让出的内存，超了先回收文件缓存、再让分配变慢，不杀进程；`gateMemoryMax` 默认 `8G`，是加载时允许的峰值，超了 OOM 掉模型）、
 `cudaLibraryPath`（默认 `/run/opengl-driver/lib`）、`web.directory`、`tts.routes`（默认见上面的路由表）、
 各引擎、`translate` 和 `asr` 的 `requiredVram`（MiB，默认值写在 `src/setup.ts`，来自实测峰值）、`ming-tiny` 的 `bits`（4 或 8，默认 8）、`drama3` 的 `expertCache`（每层留在显卡上的专家槽数，8 到 256，默认 64；每槽 40 层共约 54 MB，越大越快、越占显存）。
 各引擎的 `requiredVram` 同时是显存上限：模型运行中用得更多，网关会杀掉它并报错。
