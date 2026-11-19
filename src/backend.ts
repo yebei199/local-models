@@ -85,6 +85,22 @@ function freeVram(): number {
   return free;
 }
 
+/** MiB the process `pid` holds on the GPU; zero when it holds none or the driver cannot say. */
+export async function processVram(pid: number): Promise<number> {
+  const p = Bun.spawn(
+    ['nvidia-smi', '--query-compute-apps=pid,used_memory', '--format=csv,noheader,nounits'],
+    { stdout: 'pipe', stderr: 'ignore' },
+  );
+  const lines = (await new Response(p.stdout).text()).split('\n');
+  await p.exited;
+  let used = 0;
+  for (const line of lines) {
+    const [owner, mib] = line.split(',').map((field) => Number(field.trim()));
+    if (owner === pid && Number.isFinite(mib)) used += mib as number;
+  }
+  return used;
+}
+
 /** Refuse to start beside a job holding the card, but give a finished one time to let go:
  * ComfyUI's /free answers seconds before the weights actually leave. */
 export async function requireVram(needed: number, seconds: number): Promise<void> {

@@ -353,7 +353,14 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
           serveTranslate ? [`TRANSLATE_PORT=${port.translateBack}`] : [],
         ),
         run('gate.ts'),
-        { TimeoutStartSec: 300 },
+        {
+          TimeoutStartSec: 300,
+          // The model host is also a desktop: a model that outgrows this is OOM-killed inside the
+          // unit instead of pushing the desktop into swap, and the gate lives on to say so.
+          MemoryMax: config.gateMemoryMax ?? '8G',
+          MemorySwapMax: 0,
+          OOMPolicy: 'continue',
+        },
       ),
     );
     plan.manual.push('tts.socket');

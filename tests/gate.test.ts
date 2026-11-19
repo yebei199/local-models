@@ -14,10 +14,11 @@ afterEach(async () => {
 
 /** A fake engine: logs its life cycle and echoes what it was asked in the audio bytes. */
 const ENGINE = `
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, writeFileSync } from 'node:fs';
 const [name, port, log] = process.argv.slice(2);
 const note = (line) => appendFileSync(log, line + '\\n');
 note('start ' + name);
+writeFileSync(log + '.pid', String(process.pid));
 process.on('SIGTERM', () => { note('stop ' + name); process.exit(0); });
 Bun.serve({
   hostname: '127.0.0.1',
@@ -27,6 +28,10 @@ Bun.serve({
     const form = await request.formData();
     const audio = await form.get('ref_audio').text();
     if (form.get('text') === 'boom') return new Response('engine broke', { status: 500 });
+    if (form.get('text') === 'grow') {
+      writeFileSync(log + '.grow', '');
+      await Bun.sleep(10000);
+    }
     note('speak ' + name + ' ' + form.get('text'));
     return new Response(
       [name, form.get('language'), form.get('ref_text'), audio].join('|'),
@@ -36,6 +41,13 @@ Bun.serve({
 });
 `;
 
+/** A fake GPU with `free` MiB free, where the engine holds 99999 MiB once asked to grow. */
+const gpu = (free: string, log: string) => `
+const { existsSync, readFileSync } = require('node:fs');
+if (!process.argv.some((arg) => arg.startsWith('--query-compute-apps'))) console.log(${JSON.stringify(free)});
+else if (existsSync(${JSON.stringify(`${log}.grow`)})) console.log(readFileSync(${JSON.stringify(`${log}.pid`)}, 'utf8') + ', 99999');
+`;
+
 /** Start the gate with two fake engines and a fake GPU reporting `free` MiB. */
 async function start(dir: string, free = '12000') {
   const [gatePort, enginePort] = [freePort(), freePort()];
@@ -43,7 +55,7 @@ async function start(dir: string, free = '12000') {
   writeFileSync(log, '');
   const script = join(dir, 'engine.ts');
   writeFileSync(script, ENGINE);
-  const bin = fakeTool(dir, 'nvidia-smi', `console.log(${JSON.stringify(free)});`);
+  const bin = fakeTool(dir, 'nvidia-smi', gpu(free, log));
   const voice = (name: string) => {
     const path = join(dir, `${name}.wav`);
     writeFileSync(path, `${name}-audio`);
@@ -431,4 +443,15 @@ describe('transcription', () => {
     expect(await response.text()).toBe('this host does not transcribe');
     expect(readFileSync(log, 'utf8')).toBe('');
   });
+});
+
+test('a model past its VRAM budget is stopped and the caller is told why', async () => {
+  const { speak, log } = await start(scratch());
+  const response = await speak('grow', 'en');
+  expect(response.status).toBe(503);
+  expect(await response.text()).toContain(
+    'one used 99999 MiB VRAM, over its 9000 MiB requiredVram',
+  );
+  expect(lines(log)).not.toContain('stop one');
+  expect((await speak('hi', 'en')).status).toBe(200);
 });

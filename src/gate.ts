@@ -1,12 +1,13 @@
 // Route speech, transcription and translation requests to the right model, keeping only one on the GPU at a time.
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
-import { requireVram } from './backend.ts';
+import { processVram, requireVram } from './backend.ts';
 import { libre } from './libre.ts';
 
 /** A cold start costs about 35 seconds on Breeze; anything past this is a hung load. */
 const START_TIMEOUT = 300_000;
 const STOP_TIMEOUT = 30_000;
+const VRAM_POLL = 2_000;
 
 /** A recording and its exact transcript. */
 interface Voice {
@@ -44,10 +45,35 @@ interface Config {
 /** A parsed request body; Bun and the DOM type FormData differently. */
 type Incoming = Awaited<ReturnType<Request['formData']>>;
 
-/** The model holding the GPU now. */
+/** The model holding the GPU now, and why the gate stopped it, if it did. */
 interface Active {
   name: string;
   process: Bun.Subprocess;
+  breach?: string;
+}
+
+/** No driver setting caps one process's VRAM, so the gate watches: a model past its budget would
+ * starve the desktop sharing the card, and is killed instead. Its budget is `requiredVram`, the same
+ * figure the start was checked against. */
+function watch(started: Active, budget: number): void {
+  const timer = setInterval(async () => {
+    const used = await processVram(started.process.pid).catch(() => 0);
+    if (used <= budget || started.breach) return;
+    started.breach = `${started.name} used ${used} MiB VRAM, over its ${budget} MiB requiredVram; the gate stopped it`;
+    started.process.kill('SIGKILL');
+  }, VRAM_POLL);
+  started.process.exited.then(() => clearInterval(timer));
+}
+
+/** A model the gate or the kernel killed fails its request with a bare socket error; name the cause.
+ * SIGKILL that the gate did not send comes from the OOM killer at the unit's MemoryMax. */
+async function explain(current: Active | undefined, error: unknown): Promise<unknown> {
+  if (!current) return error;
+  await Promise.race([current.process.exited, Bun.sleep(1000)]);
+  if (current.breach) return new Error(current.breach);
+  if (current.process.signalCode === 'SIGKILL')
+    return new Error(`${current.name} was killed, most likely over the gate's MemoryMax`);
+  return error;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -88,7 +114,8 @@ async function terminate(process: Bun.Subprocess): Promise<void> {
 async function ready(port: number, process: Bun.Subprocess): Promise<void> {
   const deadline = Date.now() + START_TIMEOUT;
   while (Date.now() < deadline) {
-    if (process.exitCode !== null) throw new Error(`engine exited with ${process.exitCode}`);
+    if (process.exitCode !== null || process.signalCode !== null)
+      throw new Error(`engine exited with ${process.exitCode ?? process.signalCode}`);
     const answer = await fetch(`http://127.0.0.1:${port}/health`, {
       signal: AbortSignal.timeout(1000),
     }).catch(() => undefined);
@@ -121,6 +148,8 @@ function engineForm(request: Incoming, voice: Voice, language: string): FormData
 /** Build the request handler and the shutdown hook around one piece of GPU state. */
 function gate(config: Config) {
   let active: Active | undefined;
+  /** The last model started, kept after it exits so a failed job can say why it died. */
+  let last: Active | undefined;
   let queue: Promise<unknown> = Promise.resolve();
 
   async function stop(): Promise<void> {
@@ -133,6 +162,7 @@ function gate(config: Config) {
   async function activate(name: string): Promise<void> {
     if (active?.name === name) return;
     await stop();
+    last = undefined;
     const engine = config.engines[name] as Engine;
     await requireVram(engine.vram, config.vramWait);
     const process = Bun.spawn(engine.command, {
@@ -142,8 +172,10 @@ function gate(config: Config) {
       stdout: 'inherit',
       stderr: 'inherit',
     });
-    const started = { name, process };
+    const started: Active = { name, process };
     active = started;
+    last = started;
+    watch(started, engine.vram);
     process.exited.then(() => {
       if (active === started) active = undefined;
     });
@@ -169,8 +201,12 @@ function gate(config: Config) {
   /** Requests wait their turn here, so callers never see the single-GPU limit. */
   function enqueue<T>(name: string, job: () => Promise<T>): Promise<T> {
     const result = queue.then(async () => {
-      await activate(name);
-      return job();
+      try {
+        await activate(name);
+        return await job();
+      } catch (error) {
+        throw await explain(last, error);
+      }
     });
     queue = result.catch(() => {});
     return result;

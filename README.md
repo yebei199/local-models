@@ -158,8 +158,10 @@ cd ~/.local/share/local-models/src && git pull && bun run setup
 ```
 
 可选项：`models`（安装目录，默认 `~/.local/share/local-models/models`）、`idleTime`（默认 `30min`）、
+`gateMemoryMax`（网关和它跑的模型合计的内存上限，systemd 格式，默认 `8G`，不用 swap）、
 `cudaLibraryPath`（默认 `/run/opengl-driver/lib`）、`web.directory`、`tts.routes`（默认见上面的路由表）、
 各引擎、`translate` 和 `asr` 的 `requiredVram`（MiB，默认值写在 `src/setup.ts`，来自实测峰值）、`ming-tiny` 的 `bits`（4 或 8，默认 8）、`drama3` 的 `expertCache`（每层留在显卡上的专家槽数，8 到 256，默认 32；越大越快、越占显存）。
+各引擎的 `requiredVram` 同时是显存上限：模型运行中用得更多，网关会杀掉它并报错。
 旧版配置里的 `comfyui.directory`、`tts.directory` 等路径键已经去掉，留着会报错。
 
 ## 开发

@@ -23,6 +23,8 @@ export interface HostConfig {
   /** Install root for model code, environments and weights. */
   models?: string;
   idleTime?: string;
+  /** systemd MemoryMax for the model gate and the model it runs, e.g. "8G"; it never swaps. */
+  gateMemoryMax?: string;
   cudaLibraryPath?: string;
   comfyui?: { url?: string; serve?: boolean };
   web?: { directory?: string };
