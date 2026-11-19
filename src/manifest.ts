@@ -34,12 +34,17 @@ export interface Component {
   weights: Weights[];
 }
 
-export const engineNames = ['breeze', 'qwen', 'irodori', 'ming', 'ming-tiny'] as const;
+export const engineNames = ['breeze', 'qwen', 'irodori', 'ming', 'ming-tiny', 'drama3'] as const;
 export type Engine = (typeof engineNames)[number];
 export type Name = 'comfyui' | Engine | 'translator' | 'asr';
 
 const llamaCpp = (asset: string, sha256: string) => ({
   url: `https://github.com/ggml-org/llama.cpp/releases/download/b12317/${asset}`,
+  sha256,
+});
+
+const audioCpp = (asset: string, sha256: string) => ({
+  url: `https://github.com/0xShug0/audio.cpp/releases/download/v0.9.5/${asset}`,
   sha256,
 });
 
@@ -165,6 +170,31 @@ export const manifest: Record<Name, Component> = {
         repository: 'inclusionAI/Ming-3.0-tts-tiny',
         revision: '4715ef5a2f02901f75687d538b6920fd0dd11e6b',
         files: { '': 'weights/' },
+      },
+    ],
+  },
+  drama3: {
+    // audio.cpp's C library runs Drama 3 with part of the experts on the CPU, which is what fits it on
+    // a 16 GB card; its release has no Linux CLI, so engines/drama3.py calls the library through
+    // ctypes. The venv only holds numpy for engines/common.py. Like llama.cpp, it runs through nix-ld,
+    // which also supplies libgomp and libstdc++.
+    release: [
+      audioCpp(
+        'audio-v0.9.5-lib-ubuntu-x64-cuda13.3.tar.gz',
+        '61091545078e7c0b1ee24f7b48ac3a7f32b7a32d30e419ea65abe35c788d7c4b',
+      ),
+      audioCpp(
+        'audio-v0.9.5-cudart-ubuntu-x64-cuda13.3.tar.gz',
+        'd8c6bf84655310ae34702486ba8641bbe909b22a66605b2cb08fc24b6af84bf9',
+      ),
+    ],
+    python: { version: '3.12', lock: 'drama3' },
+    weights: [
+      {
+        // Community GGUF of the 2026-10-29 checkpoint: Q8_0 backbone, Q3_K experts.
+        repository: 'Jmica/Drama-3-GGUF',
+        revision: '060acc8e5d9e5d16baf647c775dfe1a1438f5f35',
+        files: { 'drama-3-backbone-8bit-experts-Q3_K_S.gguf': 'weights/model.gguf' },
       },
     ],
   },

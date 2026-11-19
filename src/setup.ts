@@ -36,7 +36,8 @@ const script = (name: string) => join(repo, 'engines', name);
 type Tts = NonNullable<HostConfig['tts']>;
 
 /** Each engine runs from its installed checkout and venv and answers the Breeze speech contract.
- * Peak VRAM behind the defaults: Breeze eager 8320, Qwen cloning 4487, Ming 2963, tiny int8 11.1 GB. */
+ * Peak VRAM behind the defaults: Breeze eager 8320, Qwen cloning 4487, Ming 2963, tiny int8 11.1 GB,
+ * Drama 3 with 22 CPU expert layers 11.6 GB. */
 function engine(name: Name, models: string, tts: Tts, environment: Record<string, string>): Engine {
   const at = paths(models, name);
   const options = tts.engines[name] ?? {};
@@ -100,6 +101,20 @@ function engine(name: Name, models: string, tts: Tts, environment: Record<string
         },
         vram: options.requiredVram ?? 11500,
       };
+    case 'drama3':
+      return {
+        directory: at.root,
+        command: [at.python, script('drama3.py'), '--library', join(at.code, 'libs/libaudiocpp.so')]
+          .concat(['--model', join(at.weights, 'model.gguf')])
+          .concat(['--cpu-expert-layers', String(options.cpuExpertLayers ?? 22)])
+          .concat(['--threads', String(navigator.hardwareConcurrency)], listen),
+        // The release ships its CUDA runtime beside the library; the driver comes from the host.
+        environment: {
+          ...environment,
+          LD_LIBRARY_PATH: `${at.code}/libs:${at.code}:${environment.LD_LIBRARY_PATH}`,
+        },
+        vram: options.requiredVram ?? 12000,
+      };
   }
 }
 
@@ -157,9 +172,10 @@ function engines(tts: Tts, models: string, cuda: string): Record<string, Engine>
   return Object.fromEntries(names.map((name) => [name, engine(name, models, tts, environment)]));
 }
 
+/** Drama 3 won the blind tests for every use and language; see docs/tts-models.md. */
 const defaultRoutes = {
-  anki: { en: 'breeze', zh: 'breeze', ja: 'irodori' },
-  video: { en: 'ming-tiny', zh: 'ming-tiny', ja: 'ming' },
+  anki: { en: 'drama3', zh: 'drama3', ja: 'drama3' },
+  video: { en: 'drama3', zh: 'drama3', ja: 'drama3' },
 };
 
 /** Routes keep only engines this host has, so a host without Irodori still starts its gate. */
@@ -222,6 +238,15 @@ interface Plan {
   start: string[];
 }
 
+/** The programs the units call, which also decides the units' PATH. */
+function hostTools(config: HostConfig): string[] {
+  const needs = ['nvidia-smi', 'systemctl', 'ss', ...(config.tts ? ['sox'] : [])];
+  // The transcriber and Drama 3 decode whatever container the caller uploaded.
+  if (config.asr?.serve || config.tts?.engines.drama3) needs.push('ffmpeg');
+  if (config.comfyui?.serve) needs.push('tailscale');
+  return needs;
+}
+
 function services(config: HostConfig, places: Places, bun: string, plan: Plan): void {
   const serveComfy = config.comfyui?.serve === true;
   const serveTranslate = config.translate?.serve === true;
@@ -232,10 +257,7 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
   const cuda = config.cudaLibraryPath ?? '/run/opengl-driver/lib';
   const idle = config.idleTime ?? '30min';
   const proxyd = resolve(dirname(tool('systemctl')), '../lib/systemd/systemd-socket-proxyd');
-  const needs = ['nvidia-smi', 'systemctl', 'ss', ...(config.tts ? ['sox'] : [])];
-  // The transcriber decodes whatever container the caller uploaded.
-  if (serveAsr) needs.push('ffmpeg');
-  if (serveComfy) needs.push('tailscale');
+  const needs = hostTools(config);
   const path = [...new Set(needs.map((name) => dirname(tool(name))).concat(dirname(bun)))].join(
     ':',
   );

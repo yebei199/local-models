@@ -12,6 +12,8 @@ export interface EngineConfig {
   requiredVram?: number;
   /** ming-tiny only: expert weights quantized to 4 or 8 bits on load. */
   bits?: 4 | 8;
+  /** drama3 only: expert layers (of 40) kept and run on the CPU, which sets the VRAM it needs. */
+  cpuExpertLayers?: number;
 }
 
 /** The host's own values; nothing here is checked into the repo. */

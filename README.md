@@ -20,11 +20,12 @@
 
 | 用途 | 英语 | 中文 | 日语 |
 |---|---|---|---|
-| `anki` | Breeze | Breeze | Irodori |
-| `video` | Ming tiny | Ming tiny | Ming |
+| `anki` | Drama 3 | Drama 3 | Drama 3 |
+| `video` | Drama 3 | Drama 3 | Drama 3 |
 
 音色默认用 `tts.voices` 里该用途、该语言的参考。`tts synth` 可加 `--voice WAV --voice-text 文字稿`（两个必须同时给，文字稿要与
-音频一字不差）临时替换，也可加 `--instruction`、`--seed`。选型结论见 [docs/tts-models.md](docs/tts-models.md)。
+音频一字不差）临时替换，也可加 `--seed`。Drama 3 不收 `--instruction`（带了就报错），语气写成正文里的方括号标签，
+例如 `[放慢，带着遗憾] 可是……`；`--instruction` 只给路由到 Ming tiny 的主机用。选型结论见 [docs/tts-models.md](docs/tts-models.md)。
 
 ## 翻译
 
@@ -81,6 +82,7 @@ RTX 5080 上的实测：冷启动约 35 秒，之后实时率约 0.8。不需要
 | `irodori` | Irodori-TTS | 3.10，cu128 | Irodori-TTS v4.1 Small、Semantic-DACVAE |
 | `ming` | Ming-3.0-tts | 3.10，cu128 | Ming-3.0-tts 0.5B |
 | `ming-tiny` | 与 Ming 共用检出和 venv | 另装 x-transformers、fla-core | Ming-3.0-tts tiny |
+| `drama3` | audio.cpp v0.9.5 CUDA 13 预编译库，经 ctypes 调用 | 3.12，只有 numpy | Drama 3 GGUF，Q8 主干、Q3 专家 |
 | `translator` | llama.cpp b12317 CUDA 13 预编译包 | 无 | Hy-MT2-7B Q8_0 GGUF |
 
 代码钉在提交上，venv 由 `uv pip sync` 照 `locks/` 里冻结的环境建，权重钉在 Hugging Face 仓库的提交上，
@@ -104,7 +106,7 @@ ComfyUI 侧栏里的工作流就是本仓库 `comfyui/workflows/` 的文件，�
 ## 安装和更新
 
 不用 nix，直接用 bun 跑。主机上要有 bun、ffmpeg、ssh、systemctl；模型主机另要 nvidia-smi、ss、tailscale、git、uv、curl，
-跑 Breeze 还要 sox。setup 开头会检查，缺哪个就报哪个。
+跑 Breeze 还要 sox，跑 Drama 3 或 `asr` 还要 ffmpeg。setup 开头会检查，缺哪个就报哪个。
 
 每台主机克隆一份专门用来运行的检出，不和开发用的检出混用，改到一半的代码不会影响正在用的命令：
 
@@ -148,14 +150,14 @@ cd ~/.local/share/local-models/src && git pull && bun run setup
       "anki": { "en": { "path": "/home/me/voices/quiet_en.wav", "text": "参考音频的准确文字稿" } },
       "video": { "zh": { "path": "/home/me/voices/story_zh.wav", "text": "参考音频的准确文字稿" } }
     },
-    "engines": { "breeze": {}, "qwen": {}, "irodori": {}, "ming": {}, "ming-tiny": { "bits": 8 } }
+    "engines": { "drama3": {} }
   }
 }
 ```
 
 可选项：`models`（安装目录，默认 `~/.local/share/local-models/models`）、`idleTime`（默认 `30min`）、
 `cudaLibraryPath`（默认 `/run/opengl-driver/lib`）、`web.directory`、`tts.routes`（默认见上面的路由表）、
-各引擎、`translate` 和 `asr` 的 `requiredVram`（MiB，默认值写在 `src/setup.ts`，来自实测峰值）、`ming-tiny` 的 `bits`（4 或 8，默认 8）。
+各引擎、`translate` 和 `asr` 的 `requiredVram`（MiB，默认值写在 `src/setup.ts`，来自实测峰值）、`ming-tiny` 的 `bits`（4 或 8，默认 8）、`drama3` 的 `cpuExpertLayers`（放到 CPU 的专家层数，默认 22，16 GB 卡上更少放不下）。
 旧版配置里的 `comfyui.directory`、`tts.directory` 等路径键已经去掉，留着会报错。
 
 ## 开发
@@ -173,3 +175,4 @@ bun run build   # 前端构建到 web/dist；cd web && bunx vite 开发，/api �
 
 本仓库代码是 AGPL-3.0-only，附加条款（第 7(b)(c) 条）要求所有衍生作品保留署名 `Based on local-models by yebei199 - https://github.com/yebei199/local-models`，有界面的要在其「关于/法律声明」处显示，修改版须标明修改，详见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。Hy-MT2 的权重是 Apache 2.0，llama.cpp 是 MIT。Breeze-TTS-2 的代码是 Apache 2.0，**权重和生成的音频仅限研究和非商业用途**，
 本仓库不含权重。
+Drama 3 的权重按 Fish Audio 社区许可：年营收低于 50 万美元可商用，发布的作品要标注 “Built with Fish Audio”，不得未经同意模仿可辨认的真人；audio.cpp 是 MIT。

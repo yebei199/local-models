@@ -84,7 +84,8 @@ describe('model host', () => {
 
   test('routes only to the engines the host has', async () => {
     const h = host();
-    await h.run(modelHost);
+    const routes = { anki: { en: 'breeze', zh: 'breeze', ja: 'irodori' } };
+    await h.run({ ...modelHost, tts: { ...modelHost.tts, routes } });
     const gate = JSON.parse(h.file('.local/state/local-models/gate.json'));
     expect(Object.keys(gate.engines).sort()).toEqual(['breeze', 'ming', 'qwen']);
     expect(gate.routes.anki).toEqual({ en: 'breeze', zh: 'breeze' });
@@ -109,6 +110,22 @@ describe('model host', () => {
     );
     expect(gate.engines.irodori.command.join(' ')).toContain(
       '--checkpoint /srv/models/irodori/weights/model.safetensors --codec /srv/models/irodori/weights/codec.pth',
+    );
+  });
+
+  test('Drama 3 takes every default route and loads audio.cpp from its release', async () => {
+    const h = host();
+    const engines = { drama3: { cpuExpertLayers: 24 } };
+    await h.run({ ...modelHost, tts: { ...modelHost.tts, engines } });
+    const gate = JSON.parse(h.file('.local/state/local-models/gate.json'));
+    const all = { en: 'drama3', zh: 'drama3', ja: 'drama3' };
+    expect(gate.routes).toEqual({ anki: all, video: all });
+    const drama = gate.engines.drama3;
+    expect(drama.command.join(' ')).toContain(
+      '--library /srv/models/drama3/code/libs/libaudiocpp.so --model /srv/models/drama3/weights/model.gguf --cpu-expert-layers 24',
+    );
+    expect(drama.environment.LD_LIBRARY_PATH).toBe(
+      '/srv/models/drama3/code/libs:/srv/models/drama3/code:/run/opengl-driver/lib',
     );
   });
 

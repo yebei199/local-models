@@ -41,7 +41,7 @@ tts、asr ── ssh -L unix socket ─► tts.socket 127.0.0.1:8290
 Dialect、translate ── tailnet HTTPS :18098 ► Caddy ► translate.socket 127.0.0.1:8098
                                     └ translate.service（socket-proxyd）
                                         └ 同一个 tts-backend.service :8293（model-gate，LibreTranslate 接口）
-                                            └ 当前模型 :8292（Breeze、Ming、Irodori、Qwen、Qwen3-ASR 或 llama-server）
+                                            └ 当前模型 :8292（Drama 3、Breeze、Ming、Irodori、Qwen、Qwen3-ASR 或 llama-server）
 
 scene-image/video ─── HTTP(S) ► comfyui.socket 127.0.0.1:8088
   │                                 └ comfyui.service（socket-proxyd）
@@ -64,7 +64,7 @@ scene-narrate、scene-show         在调用方本机运行，只用 ffmpeg 和 
   接口照 LibreTranslate 的形状（`/translate`、`/languages`、`/detect`、`/spec`、`/frontend/settings`），
   因为客户端是 Dialect，只能填实例地址。tailnet 内不鉴权，和 ComfyUI、试听页一样。
 - 所有语音模型都讲 Breeze 的协议：multipart 的 `text`、`ref_text`、`ref_audio`，返回裸 PCM 和
-  `X-Sample-Rate`。`engines/` 把 Qwen、Irodori 和 Ming 包成这个协议，网关才不用区分模型。
+  `X-Sample-Rate`。`engines/` 把 Drama 3、Qwen、Irodori 和 Ming 包成这个协议，网关才不用区分模型。
 - 语音转文字也走这个网关和语音端口（`POST /v1/audio/transcriptions`，multipart 的 `file` 和可选 `language`），
   因为调用方和 `tts` 一样在别的主机经 ssh 来，不进 tailnet。网关先把整个上传读完再排队：排队期间让连接挂着，
   调用方的上传会卡住。音频由引擎用 ffmpeg 从临时文件解码，yt-dlp 的 m4a 可能把索引放在末尾，管道读不到。
@@ -89,6 +89,7 @@ engines/
                         翻译模型不在这里：llama-server 本身讲 OpenAI chat 协议，网关直接调用
   asr.py                Qwen3-ASR：fsmn-vad 切段、逐段识别和判语言、对齐器按句末切行；收上传音频，回 JSON
   mingtiny.py           Ming tiny：专家权重流式量化到 int8；文件名不能叫 ming_tiny.py，会遮住上游同名包
+  drama3.py             Drama 3：ctypes 调 audio.cpp 发布包里的 C 库，部分专家和编解码器放 CPU 才放得进 16 GB
 skills/
   local-models/SKILL.md 给 AI 用的命令说明，由 nixos_config 链接安装；改命令或路由时同步更新
   model-weights/SKILL.md 权重下载来源的实测结论和核对方法，同样由 nixos_config 安装
@@ -213,6 +214,8 @@ bun run build   # 前端构建到 web/dist；开发时 cd web && bunx vite，/ap
 **许可与内容**
 
 - 代码是 AGPL-3.0-only。Breeze 权重和输出仅限研究和非商业用途，所以 `video` 路由不能指向它。
+- Drama 3 按 Fish Audio 社区许可：年营收 50 万美元以下可商用，发布的视频要标注 “Built with Fish Audio”，不得模仿可辨认的真人。
+- Drama 3 不收 `instruction`，语气只能写成正文里的方括号标签；引擎收到指令就报错，不悄悄丢掉。
 - 音频和参考声音不进仓库。
 
 **web 页面**
