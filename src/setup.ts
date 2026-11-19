@@ -236,6 +236,8 @@ interface Plan {
   files: Map<string, string>;
   /** Units to enable and start; starting a running unit does nothing. */
   start: string[];
+  /** Units the user starts by hand: never enabled, so a boot leaves them off. */
+  manual: string[];
 }
 
 /** The programs the units call, which also decides the units' PATH. */
@@ -280,11 +282,11 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
         PrivateTmp: 'true',
       },
     });
-  const socket = (description: string, listen: number) =>
+  const socket = (description: string, listen: number, boot = true) =>
     unit({
       Unit: { Description: description },
       Socket: { ListenStream: `127.0.0.1:${listen}` },
-      Install: { WantedBy: 'sockets.target' },
+      ...(boot ? { Install: { WantedBy: 'sockets.target' } } : {}),
     });
   /** SIGTERM is how the backends are stopped, so exit 143 is not a failure. */
   const backend = (
@@ -334,7 +336,9 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
     plan.files.set(gate, gateConfig(config, models, cuda));
     plan.files.set(
       at('tts.socket'),
-      socket('Socket that starts the speech gate on the first request', port.ttsFront),
+      // Drama 3 holds most of the host's spare RAM and VRAM while loaded, so the speech gate only
+      // listens after the user starts it, never from a boot.
+      socket('Socket that starts the speech gate on the first request', port.ttsFront, false),
     );
     plan.files.set(
       at('tts.service'),
@@ -352,7 +356,7 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
         { TimeoutStartSec: 300 },
       ),
     );
-    plan.start.push('tts.socket');
+    plan.manual.push('tts.socket');
   }
   if (serveTranslate) {
     plan.files.set(
@@ -469,6 +473,8 @@ function apply(plan: Plan, state: string): void {
   const changed = write(plan, state);
   systemctl('daemon-reload');
   if (plan.start.length) systemctl('enable', '--now', ...plan.start);
+  // Disable only drops a boot link left by an older setup; a running socket keeps running.
+  if (plan.manual.length) systemctl('disable', '--quiet', ...plan.manual);
   const web = 'local-models-web.service';
   if (plan.start.includes(web)) systemctl('restart', web);
   for (const name of changed)
@@ -481,13 +487,15 @@ if (import.meta.main) {
     const where = places();
     const config = read(where.config);
     const bun = tool('bun');
-    const plan: Plan = { files: new Map(), start: [] };
+    const plan: Plan = { files: new Map(), start: [], manual: [] };
     services(config, where, bun, plan);
     commands(config, where, bun, plan);
     apply(plan, where.state);
     console.log(
       `setup: ${plan.files.size} files in place, started ${plan.start.join(', ') || 'nothing'}`,
     );
+    for (const name of plan.manual)
+      console.log(`setup: ${name} does not start at boot; run \`systemctl --user start ${name}\``);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

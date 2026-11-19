@@ -124,6 +124,8 @@ cd ~/.local/share/local-models/src && git pull && bun run setup
 `~/.local/state/local-models/gate.json`（网关配置）、`~/.local/bin` 下的命令。它只启动还没在跑的服务，
 从不重启或停止模型服务，正在跑的显卡任务不会被打断；定义变了的运行中服务只提示，空闲时自己重启。
 网页服务不占显卡，每次都会重启。不是 setup 写的同名文件它不覆盖，直接报错。
+语音网关的 `tts.socket` 例外：它不开机自启，用到 `tts` 或 `asr` 前在模型主机上 `systemctl --user start tts.socket`，
+用完 `systemctl --user stop tts.socket tts-backend.service` 归还内存和显存。
 
 只调用命令的机器只写 `host`、ComfyUI 和翻译的地址：
 

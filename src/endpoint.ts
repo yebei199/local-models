@@ -6,9 +6,25 @@ import { isLocal } from './host.ts';
 
 /** Where requests go, and how to release the route afterwards. */
 export interface Endpoint {
-  url: string;
-  unix?: string;
+  request: (path: string, init?: RequestInit) => Promise<Response>;
   close: () => void;
+}
+
+/** The speech socket is started by hand on the model host, never at boot, so a refused connection
+ * most likely means nobody started it; say so instead of a bare socket error. */
+function endpoint(command: string, host: string, url: string, unix?: string): Endpoint['request'] {
+  return async (path, init = {}) => {
+    try {
+      return await fetch(`${url}${path}`, { ...init, unix });
+    } catch (error) {
+      if (error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name))
+        throw error;
+      throw new Error(
+        `${command}: the speech gate on ${host || 'this host'} is not answering; it does not start at boot, so start it there with \`systemctl --user start tts.socket\``,
+        { cause: error },
+      );
+    }
+  };
 }
 
 /** The port the gate's front listens on, on the model host. */
@@ -38,7 +54,8 @@ async function tunnel(command: string, host: string): Promise<Endpoint> {
     rmSync(dir, { recursive: true, force: true });
   };
   for (let attempt = 0; attempt < 300 && ssh.exitCode === null; attempt++) {
-    if (existsSync(socket)) return { url: 'http://localhost', unix: socket, close };
+    if (existsSync(socket))
+      return { request: endpoint(command, host, 'http://localhost', socket), close };
     await Bun.sleep(100);
   }
   close();
@@ -48,6 +65,10 @@ async function tunnel(command: string, host: string): Promise<Endpoint> {
 /** Local callers talk to the front directly; everyone else needs the forward. `command` names the
  * caller in errors. */
 export async function connect(command: string, host: string): Promise<Endpoint> {
-  if (isLocal(host)) return { url: `http://127.0.0.1:${port(command)}`, close: () => {} };
+  if (isLocal(host))
+    return {
+      request: endpoint(command, host, `http://127.0.0.1:${port(command)}`),
+      close: () => {},
+    };
   return tunnel(command, host);
 }

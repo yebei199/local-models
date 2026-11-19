@@ -49,10 +49,9 @@ function form(task: Task): FormData {
 
 /** Write the file only after the whole stream arrived, so a failure leaves no partial audio. */
 async function synthesize(endpoint: Endpoint, task: Task): Promise<void> {
-  const response = await fetch(`${endpoint.url}/v1/audio/speech`, {
+  const response = await endpoint.request('/v1/audio/speech', {
     method: 'POST',
     body: form(task),
-    unix: endpoint.unix,
     signal: AbortSignal.timeout(REQUEST_TIMEOUT),
   });
   if (!response.ok)
@@ -156,7 +155,7 @@ function batchTasks(args: string[]): Task[] {
 /** Only the gate knows which model serves a route; grouping by it loads each model once. */
 async function grouped(endpoint: Endpoint, tasks: Task[]): Promise<Task[]> {
   if (tasks.length < 2) return tasks;
-  const response = await fetch(`${endpoint.url}/v1/routes`, { unix: endpoint.unix });
+  const response = await endpoint.request('/v1/routes');
   if (!response.ok) throw new Error(`tts: cannot read routes: ${response.status}`);
   const routes = (await response.json()) as Record<string, Record<string, string>>;
   const engine = (task: Task) => routes[task.use]?.[task.lang] ?? '';

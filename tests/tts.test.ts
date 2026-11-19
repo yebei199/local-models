@@ -287,3 +287,18 @@ test('an unreachable host fails with a named error', async () => {
   expect(result.status).toBe(1);
   expect(result.stderr).toContain('model-host');
 });
+
+test('a gate nobody started says how to start it', async () => {
+  const closed = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response() });
+  const port = String(closed.port);
+  closed.stop(true);
+  const dir = scratch();
+  const result = await run(
+    'tts',
+    ['synth', '--lang', 'en', '--text', 'x', '--output', join(dir, 'o.wav')],
+    { TTS_HOST: '', TTS_PORT: port },
+  );
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('systemctl --user start tts.socket');
+  expect(existsSync(join(dir, 'o.wav'))).toBe(false);
+});

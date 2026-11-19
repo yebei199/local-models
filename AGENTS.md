@@ -55,6 +55,9 @@ scene-narrate、scene-show         在调用方本机运行，只用 ffmpeg 和 
 ```
 
 - 第一个连接触发 socket，front 依赖 backend，`model-wait` 等端口绑定后 front 才开始转发。
+- `tts.socket` 不开机自启，由用户在模型主机上 `systemctl --user start tts.socket` 手动打开：Drama 3 加载后占掉主机大部分
+  空闲内存和显存，开机自己起来会拖慢桌面。`setup` 写出它但不 enable，并去掉旧版留下的开机链接。它关着时 `tts` 和 `asr`
+  报错说明怎么启动，AI 不要自己去启动它。
 - 空闲 `idleTime` 后 proxyd 退出，backend 随 `StopWhenUnneeded` 停止，显存归还。
 - model-gate 按 `use` 和 `language` 选模型，串行处理请求；换模型时先停旧的，查过显存再启动新的。
   网关退出时带走模型，所以空闲回收和 `scene-*` 的避让都只需要停 `tts-backend.service`。
@@ -156,7 +159,7 @@ bun run build   # 前端构建到 web/dist；开发时 cd web && bunx vite，/ap
 
 **systemd 单元**
 
-- `setup` 只 `enable --now`，从不重启或停止模型单元，包括 socket：重启 socket 会经 `Requires` 带停后端，
+- `setup` 只 `enable --now`（`tts.socket` 除外，见上），从不重启或停止模型单元，包括 socket：重启 socket 会经 `Requires` 带停后端，
   正在跑的任务就丢了。定义变了的运行中单元只提示。代价是改端口后要手动重启 socket。网页服务例外，每次都重启。
 - 只给 config.json 里写了的服务装单元，主机之间的差别全在 config.json，不在代码里按主机分支。
 - `setup` 不覆盖没有它标记行的同名文件：切换期间 Home Manager 的旧单元还在时，宁可报错也不抢。

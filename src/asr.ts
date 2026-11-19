@@ -54,10 +54,9 @@ async function main(args: string[]): Promise<void> {
   if (lang) body.append('language', lang);
   const endpoint = await connect('asr', process.env.TTS_HOST ?? '');
   try {
-    const response = await fetch(`${endpoint.url}/v1/audio/transcriptions`, {
+    const response = await endpoint.request('/v1/audio/transcriptions', {
       method: 'POST',
       body,
-      unix: endpoint.unix,
       signal: AbortSignal.timeout(REQUEST_TIMEOUT),
     });
     if (!response.ok)

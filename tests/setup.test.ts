@@ -134,9 +134,9 @@ describe('model host', () => {
     await h.run(modelHost);
     const calls = readFileSync(h.log, 'utf8');
     expect(calls).toContain('--user daemon-reload');
-    expect(calls).toContain(
-      '--user enable --now comfyui.socket tts.socket local-models-web.service',
-    );
+    expect(calls).toContain('--user enable --now comfyui.socket local-models-web.service');
+    expect(calls).toContain('--user disable --quiet tts.socket');
+    expect(h.file(`${units}/tts.socket`)).not.toContain('WantedBy');
     expect(calls).toContain('--user restart local-models-web.service');
     expect(calls.match(/restart/g)).toHaveLength(1);
   });

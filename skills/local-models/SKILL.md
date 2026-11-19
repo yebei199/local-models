@@ -47,6 +47,7 @@ tts batch --batch-file F.jsonl   # 每行 {"text","output","lang","use"}，可�
 | 报错 | 含义 | 处理 |
 |---|---|---|
 | `503` 和 `Only N MiB VRAM free` | 别的任务占着显卡 | 等它结束再试，不要停别人的任务 |
+| `the speech gate … is not answering` | 模型主机上的语音网关没开，它不开机自启 | 告诉用户，由用户决定何时 `systemctl --user start tts.socket`；不要自己启动 |
 | `400` 和 `no route` | 这台模型主机没配该模型 | 告诉用户，不要换一个 `--use` 绕过 |
 
 ## 翻译
