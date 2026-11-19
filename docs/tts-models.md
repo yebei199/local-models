@@ -19,7 +19,7 @@
 | Higgs TTS 3 4B | 中英日等 | 盲听 18 题没拿到一次第一 | Creator Use Grant | 已淘汰，已删除 |
 | Kokoro 82M | 英 | 不再比较 | Apache 2.0 | 已删除 |
 | Fish S2 Pro 5B | 中英日等 | 制卡盲听 9 题赢 4，和现有路由打平；语气标签有效 | Fish Audio 研究许可，任何营收都要商业授权 | 已淘汰，已删除 |
-| Fish Drama 3（35B-A3B MoE，Q3 专家） | 中英日等 | 口播短句 5 题赢 3；整篇四版盲听第一（seed 7），seed 间波动大 | Fish Audio 社区许可：年营收 50 万美元以下可商用，须标注 Built with Fish Audio | 候选，见下文 |
+| Fish Drama 3（35B-A3B MoE，Q3 专家） | 中英日等 | 口播短句 5 题赢 3，整篇第一；制卡和英日视频 15 句赢 11、输 2；seed 间波动大 | Fish Audio 社区许可：年营收 50 万美元以下可商用，须标注 Built with Fish Audio | 候选，见下文 |
 | MOSS-TTS-Local-Transformer-v1.5 4B | 中英日等 31 种 | 口播盲听三句都输给 Ming：更自然，但不抓耳 | Apache 2.0 | 已淘汰，已删除 |
 
 听感由用户判定。VoxCPM2 的 Whisper 转写准确率不低于 Qwen，仍被听感淘汰，所以转写比对只能
@@ -155,6 +155,20 @@ Drama 3 3 票、Ming 1 票、S2 0 票。只有一个 seed、五个有效判断�
 第三轮换成一篇整稿（面包店，六组，约 45 秒），按发片的方式分组生成再拼接，Ming tiny（指令）和 Drama 3（标签）各两个
 seed，四版盲听。用户选 Drama 3 seed 7：「稳定」；Drama 3 seed 23「波动过大」；Ming seed 7「太生硬」，seed 23「有电流音」。
 Drama 3 赢了整篇，但 seed 之间差别大，发片要固定一个听过的 seed，或者每组多跑几个 seed 挑。
+
+第四轮把制卡和英日视频也测了，全是新句子，每句现行路由一版、Drama 3 两个 seed（7、23），三版盲听（制卡用制卡参考，不加标签；
+视频加标签，英语的 Ming tiny 带指令，日语的 Ming 0.5B 不收指令）：
+
+| 部分 | 现行 | Drama 3 赢 | 现行赢 | 差不多 |
+|---|---|---|---|---|
+| 制卡中文 | Breeze | 1 | 0 | 2 |
+| 制卡英文 | Breeze | 2 | 1（单词 ubiquitous） | 0 |
+| 制卡日语 | Irodori | 2 | 1 | 0 |
+| 视频英语 | Ming tiny | 3 | 0 | 0 |
+| 视频日语 | Ming 0.5B | 3 | 0 | 0 |
+
+合计 11 比 2。两个 seed 各赢 5 和 6 次，没有一个固定更好的 seed。用户备注 Breeze 的中文句「后半部分太快」。
+ASR 怀疑 Irodori 把「雨上がり」读错，用户恰好选了那一版，转写不可全信；Ming 0.5B 把「八十歳」读成「100 歳」。
 
 Drama 3 在这张卡上的跑法（audio.cpp v0.9.5 的库已含 `fish_drama3`，ctypes 调用同 S2）：
 
