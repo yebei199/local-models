@@ -92,7 +92,7 @@ engines/
                         翻译模型不在这里：llama-server 本身讲 OpenAI chat 协议，网关直接调用
   asr.py                Qwen3-ASR：fsmn-vad 切段、逐段识别和判语言、对齐器按句末切行；收上传音频，回 JSON
   mingtiny.py           Ming tiny：专家权重流式量化到 int8；文件名不能叫 ming_tiny.py，会遮住上游同名包
-  drama3.py             Drama 3：ctypes 调 audio.cpp 发布包里的 C 库，部分专家和编解码器放 CPU 才放得进 16 GB
+  drama3.py             Drama 3：ctypes 调 audio.cpp 发布包里的 C 库；专家按需从 GGUF 读进显卡槽，不整块进内存
 skills/
   local-models/SKILL.md 给 AI 用的命令说明，由 nixos_config 链接安装；改命令或路由时同步更新
   model-weights/SKILL.md 权重下载来源的实测结论和核对方法，同样由 nixos_config 安装

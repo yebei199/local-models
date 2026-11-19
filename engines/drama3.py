@@ -115,16 +115,22 @@ def decode(path):
 
 
 def main():
-    args = common.arguments("--library", "--model", "--cpu-expert-layers", "--threads")
+    args = common.arguments("--library", "--model", "--expert-cache", "--threads")
     audio = AudioCpp(args.library)
-    # On a 16 GB card the codec and its reference-encoding graph only fit beside the experts the
-    # card keeps when the codec runs on the CPU; see docs/tts-models.md.
+    # Loading the expert banks whole put ~10 GB of anonymous memory on a desktop host and pushed
+    # its programs into swap. Here the routed experts stay in the GGUF and only the ones the router
+    # picks are copied into a fixed number of card slots per layer, so host memory holds page cache
+    # the kernel can drop, and VRAM is the dense backbone plus those slots. The reference encoder
+    # runs in chunks so its graph does not need the 1.2 GB a whole reference took.
     session = audio.session(
         args.model,
         int(args.threads),
         {
-            "moe_cpu_expert_layers": args.cpu_expert_layers,
-            "fish_drama3.codec_backend": "cpu",
+            "moe_disk_experts": "true",
+            "moe_expert_cache_size": args.expert_cache,
+            "moe_cpu_expert_layers": "0",
+            "moe_disk_expert_read_threads": "4",
+            "fish_drama3.codec_encoder_chunk_samples": "65536",
             "fish_drama3.context_length": "2048",
         },
     )

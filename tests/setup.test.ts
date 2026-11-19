@@ -115,14 +115,14 @@ describe('model host', () => {
 
   test('Drama 3 takes every default route and loads audio.cpp from its release', async () => {
     const h = host();
-    const engines = { drama3: { cpuExpertLayers: 24 } };
+    const engines = { drama3: { expertCache: 64 } };
     await h.run({ ...modelHost, tts: { ...modelHost.tts, engines } });
     const gate = JSON.parse(h.file('.local/state/local-models/gate.json'));
     const all = { en: 'drama3', zh: 'drama3', ja: 'drama3' };
     expect(gate.routes).toEqual({ anki: all, video: all });
     const drama = gate.engines.drama3;
     expect(drama.command.join(' ')).toContain(
-      '--library /srv/models/drama3/code/libs/libaudiocpp.so --model /srv/models/drama3/weights/model.gguf --cpu-expert-layers 24',
+      '--library /srv/models/drama3/code/libs/libaudiocpp.so --model /srv/models/drama3/weights/model.gguf --expert-cache 64',
     );
     expect(drama.environment.LD_LIBRARY_PATH).toBe(
       '/srv/models/drama3/code/libs:/srv/models/drama3/code:/run/opengl-driver/lib',

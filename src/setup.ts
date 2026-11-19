@@ -37,7 +37,7 @@ type Tts = NonNullable<HostConfig['tts']>;
 
 /** Each engine runs from its installed checkout and venv and answers the Breeze speech contract.
  * Peak VRAM behind the defaults: Breeze eager 8320, Qwen cloning 4487, Ming 2963, tiny int8 11.1 GB,
- * Drama 3 with 22 CPU expert layers 11.6 GB. */
+ * Drama 3's 9000 is an estimate, not a peak: backbone ~4 GB, 32 expert slots ~2.2 GB, codec and buffers. */
 function engine(name: Name, models: string, tts: Tts, environment: Record<string, string>): Engine {
   const at = paths(models, name);
   const options = tts.engines[name] ?? {};
@@ -106,14 +106,14 @@ function engine(name: Name, models: string, tts: Tts, environment: Record<string
         directory: at.root,
         command: [at.python, script('drama3.py'), '--library', join(at.code, 'libs/libaudiocpp.so')]
           .concat(['--model', join(at.weights, 'model.gguf')])
-          .concat(['--cpu-expert-layers', String(options.cpuExpertLayers ?? 22)])
+          .concat(['--expert-cache', String(options.expertCache ?? 32)])
           .concat(['--threads', String(navigator.hardwareConcurrency)], listen),
         // The release ships its CUDA runtime beside the library; the driver comes from the host.
         environment: {
           ...environment,
           LD_LIBRARY_PATH: `${at.code}/libs:${at.code}:${environment.LD_LIBRARY_PATH}`,
         },
-        vram: options.requiredVram ?? 12000,
+        vram: options.requiredVram ?? 9000,
       };
   }
 }

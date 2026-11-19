@@ -178,5 +178,10 @@ Drama 3 在这张卡上的跑法（audio.cpp v0.9.5 的库已含 `fish_drama3`�
 - 文档给 16 GB 卡的「12 层专家放 CPU」不够：18 层时编解码器权重放不下，22 层时参考音编码图（1.2 GB）放不下。
   能跑的是 `moe_cpu_expert_layers=22`、`fish_drama3.codec_backend=cpu`、`fish_drama3.context_length=2048`：
   显存峰值 14.9 GB（含桌面约 3.3 GB），内存 9.7 GB，加载 17 秒，之后约 1.5 倍实时（首句 5 倍）。
+- 接进网关后它常驻 30 分钟，那 9.7 GB 是匿名内存，pc3 平时只剩约 13 GB，连发三个请求就把桌面挤进 swap，pc3 卡死重启。
+  之后改成按需读专家：`moe_disk_experts=true`，专家留在 GGUF 里，每层在显卡上留 `moe_expert_cache_size` 个槽（默认 32），
+  `moe_cpu_expert_layers=0`，编解码器回到显卡，参考音分块编码（`codec_encoder_chunk_samples=65536`）。
+  内存里只剩可回收的文件缓存；显存估计约 9 GB（主干约 4 GB、32 槽约 2.2 GB、编解码器和缓冲）。这些都是估算：
+  用户叫停了在 pc1、pc3 上的实测，速度、显存和内存都还没量过。`tts.socket` 也改成不开机自启，用时手动打开。
 - 许可和 S2 不同：S2 任何营收都算商用；Drama 3 年营收 50 万美元以下可商用，须标注，禁止未经同意模仿可辨认的真人。
   所以公开视频能考虑它，S2 不能。S2 的权重、试听页和音频已删除，audio.cpp 的库留给 Drama 3。

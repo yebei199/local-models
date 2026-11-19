@@ -159,7 +159,7 @@ cd ~/.local/share/local-models/src && git pull && bun run setup
 
 可选项：`models`（安装目录，默认 `~/.local/share/local-models/models`）、`idleTime`（默认 `30min`）、
 `cudaLibraryPath`（默认 `/run/opengl-driver/lib`）、`web.directory`、`tts.routes`（默认见上面的路由表）、
-各引擎、`translate` 和 `asr` 的 `requiredVram`（MiB，默认值写在 `src/setup.ts`，来自实测峰值）、`ming-tiny` 的 `bits`（4 或 8，默认 8）、`drama3` 的 `cpuExpertLayers`（放到 CPU 的专家层数，默认 22，16 GB 卡上更少放不下）。
+各引擎、`translate` 和 `asr` 的 `requiredVram`（MiB，默认值写在 `src/setup.ts`，来自实测峰值）、`ming-tiny` 的 `bits`（4 或 8，默认 8）、`drama3` 的 `expertCache`（每层留在显卡上的专家槽数，8 到 256，默认 32；越大越快、越占显存）。
 旧版配置里的 `comfyui.directory`、`tts.directory` 等路径键已经去掉，留着会报错。
 
 ## 开发
