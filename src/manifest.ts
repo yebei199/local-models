@@ -174,8 +174,8 @@ export const manifest: Record<Name, Component> = {
     ],
   },
   drama3: {
-    // audio.cpp's C library runs Drama 3 with part of the experts on the CPU, which is what fits it on
-    // a 16 GB card; its release has no Linux CLI, so engines/drama3.py calls the library through
+    // audio.cpp's C library reads Drama 3's experts from the GGUF on demand, which is what fits ~19 GB
+    // of weights beside a desktop on a 16 GB card; its release has no Linux CLI, so engines/drama3.py calls the library through
     // ctypes. The venv only holds numpy for engines/common.py. Like llama.cpp, it runs through nix-ld,
     // which also supplies libgomp and libstdc++.
     release: [
