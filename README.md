@@ -16,12 +16,13 @@
 | `asr transcribe AUDIO -o F [--lang L]` | 音频转成带时间轴的字幕行，写 JSON |
 
 `--lang` 必填，取 `en`、`ja`、`zh`；`--use` 是 `anki`（默认）或 `video`，两者决定用哪个模型。语言不自动
-检测：`学校` 这样的短词无法判断，猜错不会报错，只会读错：
+检测：`学校` 这样的短词无法判断，猜错不会报错，只会读错。默认路由不生成中文，`--lang zh` 由网关报
+`no route`；要中文得在 `tts.routes` 里给它配一个模型和 `tts.voices` 里的参考：
 
-| 用途 | 英语 | 中文 | 日语 |
-|---|---|---|---|
-| `anki` | Drama3-small | Drama3-small | Drama3-small |
-| `video` | Drama3-small | Drama3-small | Drama3-small |
+| 用途 | 英语 | 日语 |
+|---|---|---|
+| `anki` | Drama3-small | Drama3-small |
+| `video` | Drama3-small | Drama3-small |
 
 音色默认用 `tts.voices` 里该用途、该语言的参考。`tts synth` 可加 `--voice WAV --voice-text 文字稿`（两个必须同时给，文字稿要与
 音频一字不差）临时替换，也可加 `--seed`。Drama3-small 不收 `--instruction`（带了就报错），语气写成正文里的方括号标签，

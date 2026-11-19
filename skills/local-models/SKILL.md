@@ -10,14 +10,16 @@ description: Generate speech, transcripts, translations, images or video on the 
 ## 语音
 
 ```bash
-tts synth --text T --output F.wav --lang en|ja|zh --use anki|video
+tts synth --text T --output F.wav --lang en|ja --use anki|video
 tts batch --batch-file F.jsonl   # 每行 {"text","output","lang","use"}，可选 "seed"（字符串）；路径相对清单文件
 ```
 
-| `--use` | 用途 | en、zh | ja |
+| `--use` | 用途 | en | ja |
 |---|---|---|---|
 | `anki`（默认） | 自用制卡 | Drama3-small | Drama3-small |
 | `video` | 公开视频 | Drama3-small | Drama3-small |
+
+- 不生成中文语音，制卡和视频都不做：`--lang zh` 会被网关以 `no route` 拒绝，不要绕到别的模型。
 
 - `--lang` 必填，命令不检测语言。按卡片或稿子的语言传，不要按字面猜：`学校` 这样的纯汉字词字面上分不出日语和中文。
 - 只要内容会公开发布就用 `--use video`：两种用途的参考音不同，视频用讲故事的那条。

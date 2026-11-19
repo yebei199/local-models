@@ -174,11 +174,11 @@ function engines(tts: Tts, models: string, cuda: string): Record<string, Engine>
   return Object.fromEntries(names.map((name) => [name, engine(name, models, tts, environment)]));
 }
 
-/** Drama 3 won the blind tests for every use and language, and Drama3-small is the form of it that
- * fits the host; see docs/tts-models.md. */
+/** Drama 3 won the blind tests, and Drama3-small is the form of it that fits the host. No Chinese:
+ * small loses Chinese emotion and nobody listens to it; see docs/tts-models.md. */
 const defaultRoutes = {
-  anki: { en: 'drama3', zh: 'drama3', ja: 'drama3' },
-  video: { en: 'drama3', zh: 'drama3', ja: 'drama3' },
+  anki: { en: 'drama3', ja: 'drama3' },
+  video: { en: 'drama3', ja: 'drama3' },
 };
 
 /** Routes keep only engines this host has, so a host without Irodori still starts its gate. */

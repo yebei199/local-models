@@ -32,8 +32,8 @@
 - 2026-11-19 起，制卡和视频的中英日全部用 Drama 3，语气写成句中标签，制卡句也加。完整版（audio.cpp，Q3 专家）
   在 12G 显存、8G 内存里按需读专家，每句 40 到 60 秒；Drama3-small 整个放显卡，约快于实时 2.2 倍。盲听里中文两句、
   英文三句中两句选了完整版，日语三句都选了 small。2026-11-20 用户不再用 TTS 生成中文，改用 Drama3-small：自编的
-  audio.cpp 发布在 yebei199/audio.cpp 的 `drama3-small-v1`，网关内存 `MemoryHigh` 回到 3G。中文路由仍指向它，但中文情感不足。
-  参考不变：制卡用安静的参考，视频中文用讲故事的「参考 5」（StoryZh），视频英日用制卡参考。
+  audio.cpp 发布在 yebei199/audio.cpp 的 `drama3-small-v1`，网关内存 `MemoryHigh` 回到 3G。
+  默认路由去掉中文，制卡和视频都不生成，等更好的模型（比如 Drama 4）再议。参考不变：制卡用安静的参考，视频英日用制卡参考。
 - 之前的路由：制卡英中 Breeze、日语 Irodori；视频中英 Ming tiny 带表演指令、日语 Ming 0.5B。这些引擎还装着，
   用户用几天确认后再删。
 

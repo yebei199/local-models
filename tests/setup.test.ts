@@ -117,12 +117,12 @@ describe('model host', () => {
     );
   });
 
-  test('Drama 3 takes every default route and loads audio.cpp from its release', async () => {
+  test('Drama 3 takes the English and Japanese default routes and loads audio.cpp from its release', async () => {
     const h = host();
     const engines = { drama3: {} };
     await h.run({ ...modelHost, tts: { ...modelHost.tts, engines } });
     const gate = JSON.parse(h.file('.local/state/local-models/gate.json'));
-    const all = { en: 'drama3', zh: 'drama3', ja: 'drama3' };
+    const all = { en: 'drama3', ja: 'drama3' };
     expect(gate.routes).toEqual({ anki: all, video: all });
     const drama = gate.engines.drama3;
     expect(drama.command.join(' ')).toContain(
