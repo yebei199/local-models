@@ -19,7 +19,7 @@
 | Higgs TTS 3 4B | 中英日等 | 盲听 18 题没拿到一次第一 | Creator Use Grant | 已淘汰，已删除 |
 | Kokoro 82M | 英 | 不再比较 | Apache 2.0 | 已删除 |
 | Fish S2 Pro 5B | 中英日等 | 制卡盲听 9 题赢 4，和现有路由打平；语气标签有效 | Fish Audio 研究许可，任何营收都要商业授权 | 已淘汰，已删除 |
-| Fish Drama 3（35B-A3B MoE，Q3 专家） | 中英日等 | 口播短句盲听 5 题赢 3，Ming 1、S2 0；样本少 | Fish Audio 社区许可：年营收 50 万美元以下可商用，须标注 Built with Fish Audio | 候选，见下文 |
+| Fish Drama 3（35B-A3B MoE，Q3 专家） | 中英日等 | 口播短句 5 题赢 3；整篇四版盲听第一（seed 7），seed 间波动大 | Fish Audio 社区许可：年营收 50 万美元以下可商用，须标注 Built with Fish Audio | 候选，见下文 |
 | MOSS-TTS-Local-Transformer-v1.5 4B | 中英日等 31 种 | 口播盲听三句都输给 Ming：更自然，但不抓耳 | Apache 2.0 | 已淘汰，已删除 |
 
 听感由用户判定。VoxCPM2 的 Whisper 转写准确率不低于 Qwen，仍被听感淘汰，所以转写比对只能
@@ -151,6 +151,10 @@ A、B 顺序随机，响度拉齐，用户在试听页上点选。
 | 好啦，今天就到这儿，下次见！ | 轻快，带笑意 | Ming tiny |
 
 Drama 3 3 票、Ming 1 票、S2 0 票。只有一个 seed、五个有效判断，算倾向，不算定论。
+
+第三轮换成一篇整稿（面包店，六组，约 45 秒），按发片的方式分组生成再拼接，Ming tiny（指令）和 Drama 3（标签）各两个
+seed，四版盲听。用户选 Drama 3 seed 7：「稳定」；Drama 3 seed 23「波动过大」；Ming seed 7「太生硬」，seed 23「有电流音」。
+Drama 3 赢了整篇，但 seed 之间差别大，发片要固定一个听过的 seed，或者每组多跑几个 seed 挑。
 
 Drama 3 在这张卡上的跑法（audio.cpp v0.9.5 的库已含 `fish_drama3`，ctypes 调用同 S2）：
 
