@@ -12,8 +12,6 @@ export interface EngineConfig {
   requiredVram?: number;
   /** ming-tiny only: expert weights quantized to 4 or 8 bits on load. */
   bits?: 4 | 8;
-  /** drama3 only: card slots per layer for experts read from the GGUF (8 to 256); sets its VRAM. */
-  expertCache?: number;
 }
 
 /** The host's own values; nothing here is checked into the repo. */
@@ -23,7 +21,7 @@ export interface HostConfig {
   /** Install root for model code, environments and weights. */
   models?: string;
   idleTime?: string;
-  /** systemd MemoryHigh for the model gate and the model it runs, default "8G": what the model
+  /** systemd MemoryHigh for the model gate and the model it runs, default "3G": what the model
    * host's owner spares beside the desktop. Past it the kernel reclaims the unit's page cache, then
    * slows its allocations; nothing is killed. */
   gateMemoryHigh?: string;

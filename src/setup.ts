@@ -37,9 +37,9 @@ type Tts = NonNullable<HostConfig['tts']>;
 
 /** Each engine runs from its installed checkout and venv and answers the Breeze speech contract.
  * Peak VRAM behind the defaults: Breeze eager 8320, Qwen cloning 4487, Ming 2963, tiny int8 11.1 GB,
- * Drama 3's 12000 is a budget read off its GGUF, not a peak: backbone 5.2 GiB, codec 0.8 GiB, 64 expert
- * slots per layer 3.3 GiB (1.35 MB each, 40 layers), and ~2 GiB left for the KV cache and buffers.
- * 12 GB is what a 16 GB card spares beside a desktop that peaks at ~3.2 GB. */
+ * Drama3-small measured ~9.1 GB on lines up to 7 s; its card says offline VRAM grows with the take,
+ * past 13 GiB at 30 to 40 s, so the 12000 cap also stops a runaway long take. 12 GB is what a 16 GB
+ * card spares beside a desktop that peaks at ~3.2 GB. */
 function engine(name: Name, models: string, tts: Tts, environment: Record<string, string>): Engine {
   const at = paths(models, name);
   const options = tts.engines[name] ?? {};
@@ -108,7 +108,7 @@ function engine(name: Name, models: string, tts: Tts, environment: Record<string
         directory: at.root,
         command: [at.python, script('drama3.py'), '--library', join(at.code, 'libs/libaudiocpp.so')]
           .concat(['--model', join(at.weights, 'model.gguf')])
-          .concat(['--expert-cache', String(options.expertCache ?? 64)])
+          .concat(['--silence-codes', join(at.weights, 'silence_codes.json')])
           .concat(['--threads', String(navigator.hardwareConcurrency)], listen),
         // The release ships its CUDA runtime beside the library; the driver comes from the host.
         environment: {
@@ -174,7 +174,8 @@ function engines(tts: Tts, models: string, cuda: string): Record<string, Engine>
   return Object.fromEntries(names.map((name) => [name, engine(name, models, tts, environment)]));
 }
 
-/** Drama 3 won the blind tests for every use and language; see docs/tts-models.md. */
+/** Drama 3 won the blind tests for every use and language, and Drama3-small is the form of it that
+ * fits the host; see docs/tts-models.md. */
 const defaultRoutes = {
   anki: { en: 'drama3', zh: 'drama3', ja: 'drama3' },
   video: { en: 'drama3', zh: 'drama3', ja: 'drama3' },
@@ -360,7 +361,7 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
           // The model host is also a desktop. Above MemoryHigh the unit's page cache goes first and
           // its allocations slow; a model that still reaches MemoryMax is OOM-killed inside the unit
           // instead of pushing the desktop into swap, and the gate lives on to say so.
-          MemoryHigh: config.gateMemoryHigh ?? '8G',
+          MemoryHigh: config.gateMemoryHigh ?? '3G',
           MemoryMax: config.gateMemoryMax ?? '8G',
           MemorySwapMax: 0,
           OOMPolicy: 'continue',

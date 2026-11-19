@@ -68,7 +68,7 @@ describe('model host', () => {
     expect(backend).toContain(`ExecStart=${Bun.which('bun')} ${resolve('src/gate.ts')} --`);
     expect(backend).toContain('StopWhenUnneeded=true');
     expect(backend).toContain('SuccessExitStatus=143');
-    expect(backend).toContain('MemoryHigh=8G');
+    expect(backend).toContain('MemoryHigh=3G');
     expect(backend).toContain('MemoryMax=8G');
     expect(backend).toContain('MemorySwapMax=0');
     expect(backend).toContain('OOMPolicy=continue');
@@ -119,14 +119,14 @@ describe('model host', () => {
 
   test('Drama 3 takes every default route and loads audio.cpp from its release', async () => {
     const h = host();
-    const engines = { drama3: { expertCache: 64 } };
+    const engines = { drama3: {} };
     await h.run({ ...modelHost, tts: { ...modelHost.tts, engines } });
     const gate = JSON.parse(h.file('.local/state/local-models/gate.json'));
     const all = { en: 'drama3', zh: 'drama3', ja: 'drama3' };
     expect(gate.routes).toEqual({ anki: all, video: all });
     const drama = gate.engines.drama3;
     expect(drama.command.join(' ')).toContain(
-      '--library /srv/models/drama3/code/libs/libaudiocpp.so --model /srv/models/drama3/weights/model.gguf --expert-cache 64',
+      '--library /srv/models/drama3/code/libs/libaudiocpp.so --model /srv/models/drama3/weights/model.gguf --silence-codes /srv/models/drama3/weights/silence_codes.json',
     );
     expect(drama.environment.LD_LIBRARY_PATH).toBe(
       '/srv/models/drama3/code/libs:/srv/models/drama3/code:/run/opengl-driver/lib',
