@@ -109,7 +109,7 @@ src/
   endpoint.ts           connect：本机直连网关前端，其他主机经 ssh 转发 unix socket；tts 和 asr 共用
   tts.ts                tts 命令：synth 和 batch，batch 按模型分组
   asr.ts                asr 命令：上传音频，收齐整个 JSON 才写文件
-  gate.ts               model-gate：路由、串行队列、模型启停；语音和翻译各一个端口
+  gate.ts               model-gate：路由、串行队列、模型启停；语音和翻译各一个端口；模型启停、请求和用量写成 JSON 事件进日志
   libre.ts              网关的 LibreTranslate 接口：校验、语言检测、Hy-MT2 的提示词
   translate.ts          translate 命令：文本、文档按段、字幕按条，整篇译完才写文件
   wav.ts                给模型返回的裸 PCM 加 WAV 头
@@ -117,7 +117,7 @@ src/
   workflows.json        冻结的 image（MOSS-Image）、video（MiniMax H3）节点图及风格前缀，由 moss_t2i、h3_i2v 导出
   narrate.ts            scene-narrate：用 ffmpeg 拼环境声、整句、单词旁白
   show.ts               scene-show：开 mpv 窗口，只关自己记录过的进程组
-  backend.ts            单元用的 start（启动 ComfyUI）、wait（等端口）、vram（显存守卫）
+  backend.ts            单元用的 start（启动 ComfyUI）、wait（等端口）、vram（显存守卫），以及网关读的进程显存和内存
   config.ts             config.json 的类型、校验和路径，install 和 setup 共用；旧的路径键按名字报错
   manifest.ts           每个组件钉住的代码、环境、权重，以及它们在 models 下的位置（paths）
   install.ts            按 manifest 检出代码、同步 venv、下载并校验权重；跳过后端正在运行的组件

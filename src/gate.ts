@@ -1,13 +1,15 @@
 // Route speech, transcription and translation requests to the right model, keeping only one on the GPU at a time.
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
-import { processVram, requireVram } from './backend.ts';
+import { memory, processVram, requireVram } from './backend.ts';
 import { libre } from './libre.ts';
 
 /** A cold start costs about 35 seconds on Breeze; anything past this is a hung load. */
 const START_TIMEOUT = 300_000;
 const STOP_TIMEOUT = 30_000;
 const VRAM_POLL = 2_000;
+/** Every this many polls (one minute) the model's usage goes to the log, peaks or not. */
+const USAGE_EVERY = 30;
 
 /** A recording and its exact transcript. */
 interface Voice {
@@ -45,24 +47,67 @@ interface Config {
 /** A parsed request body; Bun and the DOM type FormData differently. */
 type Incoming = Awaited<ReturnType<Request['formData']>>;
 
-/** The model holding the GPU now, and why the gate stopped it, if it did. */
+/** The model holding the GPU now, why the gate stopped it if it did, and the most it has used. */
 interface Active {
   name: string;
   process: Bun.Subprocess;
+  since: number;
   breach?: string;
+  /** Set when the gate itself ends the model: `switch` to another model, `shutdown` of the gate,
+   * or `unready` after a failed start. */
+  stopping?: string;
+  peak: { vram: number; rss: number; swap: number; unit: number; minAvailable: number };
+}
+
+/** One JSON object per line on stdout. journald carries it to the shared log store, where
+ * `| unpack_json` gives the fields back; a freeze can then be read as a timeline of which model
+ * held how much, instead of guessed from the models' own chatter. */
+function record(event: string, fields: Record<string, unknown>): void {
+  console.log(JSON.stringify({ event, ...fields }));
+}
+
+function seconds(since: number): number {
+  return Math.round((performance.now() - since) / 100) / 10;
+}
+
+/** Why a model left: a kill nobody in the gate sent is the kernel's OOM killer at `MemoryMax`. */
+function cause(model: Active): string {
+  if (model.breach) return 'vram';
+  if (model.stopping) return model.stopping;
+  return model.process.signalCode === 'SIGKILL' ? 'oom' : 'crash';
 }
 
 /** No driver setting caps one process's VRAM, so the gate watches: a model past its budget would
  * starve the desktop sharing the card, and is killed instead. Its budget is `requiredVram`, the same
- * figure the start was checked against. */
+ * figure the start was checked against. The same poll keeps the peaks the exit event reports. */
 function watch(started: Active, budget: number): void {
+  const { name, process, peak } = started;
+  let polls = 0;
   const timer = setInterval(async () => {
-    const used = await processVram(started.process.pid).catch(() => 0);
-    if (used <= budget || started.breach) return;
-    started.breach = `${started.name} used ${used} MiB VRAM, over its ${budget} MiB requiredVram; the gate stopped it`;
-    started.process.kill('SIGKILL');
+    const now = { vram: await processVram(process.pid).catch(() => 0), ...memory(process.pid) };
+    for (const key of ['vram', 'rss', 'swap', 'unit'] as const)
+      peak[key] = Math.max(peak[key], now[key]);
+    peak.minAvailable = Math.min(peak.minAvailable, now.available);
+    if (++polls % USAGE_EVERY === 0) record('usage', { model: name, pid: process.pid, ...now });
+    if (now.vram <= budget || started.breach) return;
+    started.breach = `${name} used ${now.vram} MiB VRAM, over its ${budget} MiB requiredVram; the gate stopped it`;
+    process.kill('SIGKILL');
   }, VRAM_POLL);
-  started.process.exited.then(() => clearInterval(timer));
+  process.exited.then(() => {
+    clearInterval(timer);
+    record('model.exit', {
+      model: name,
+      pid: process.pid,
+      cause: cause(started),
+      code: process.exitCode,
+      signal: process.signalCode,
+      ran: seconds(started.since),
+      peak: {
+        ...peak,
+        minAvailable: Number.isFinite(peak.minAvailable) ? peak.minAvailable : null,
+      },
+    });
+  });
 }
 
 /** A model the gate or the kernel killed fails its request with a bare socket error; name the cause.
@@ -152,19 +197,21 @@ function gate(config: Config) {
   let last: Active | undefined;
   let queue: Promise<unknown> = Promise.resolve();
 
-  async function stop(): Promise<void> {
+  async function stop(reason: string): Promise<void> {
     const current = active;
     active = undefined;
-    if (current) await terminate(current.process);
+    if (!current) return;
+    current.stopping = reason;
+    await terminate(current.process);
   }
 
   /** The old model leaves before the new one loads; two never fit together. */
   async function activate(name: string): Promise<void> {
     if (active?.name === name) return;
-    await stop();
+    await stop('switch');
     last = undefined;
     const engine = config.engines[name] as Engine;
-    await requireVram(engine.vram, config.vramWait);
+    const free = await requireVram(engine.vram, config.vramWait);
     const process = Bun.spawn(engine.command, {
       cwd: engine.directory,
       env: { ...Bun.env, ...engine.environment },
@@ -172,7 +219,13 @@ function gate(config: Config) {
       stdout: 'inherit',
       stderr: 'inherit',
     });
-    const started: Active = { name, process };
+    const started: Active = {
+      name,
+      process,
+      since: performance.now(),
+      peak: { vram: 0, rss: 0, swap: 0, unit: 0, minAvailable: Number.POSITIVE_INFINITY },
+    };
+    record('model.start', { model: name, pid: process.pid, free, budget: engine.vram });
     active = started;
     last = started;
     watch(started, engine.vram);
@@ -181,8 +234,9 @@ function gate(config: Config) {
     });
     try {
       await ready(config.enginePort, process);
+      record('model.ready', { model: name, pid: process.pid, load: seconds(started.since) });
     } catch (error) {
-      await stop();
+      await stop('unready');
       throw error;
     }
   }
@@ -198,14 +252,28 @@ function gate(config: Config) {
     return new Response(await response.arrayBuffer(), { status: response.status, headers });
   }
 
-  /** Requests wait their turn here, so callers never see the single-GPU limit. */
-  function enqueue<T>(name: string, job: () => Promise<T>): Promise<T> {
+  /** Requests wait their turn here, so callers never see the single-GPU limit. Each turn is logged
+   * with its wait, its run time and how it ended; `fields` say what was asked (kind, use, language). */
+  function enqueue<T>(
+    name: string,
+    fields: Record<string, unknown>,
+    job: () => Promise<T>,
+  ): Promise<T> {
+    const queued = performance.now();
     const result = queue.then(async () => {
+      const began = performance.now();
+      const waited = Math.round((began - queued) / 100) / 10;
+      const done = (outcome: Record<string, unknown>) =>
+        record('job', { model: name, ...fields, waited, ran: seconds(began), ...outcome });
       try {
         await activate(name);
-        return await job();
+        const answer = await job();
+        done({ status: answer instanceof Response ? answer.status : 200 });
+        return answer;
       } catch (error) {
-        throw await explain(last, error);
+        const explained = await explain(last, error);
+        done({ status: 503, error: String(explained) });
+        throw explained;
       }
     });
     queue = result.catch(() => {});
@@ -215,7 +283,7 @@ function gate(config: Config) {
   /** One queue turn for a whole batch: the segments run together, and llama-server spreads them
    * over its parallel slots. */
   function complete(name: string, bodies: object[]): Promise<string[]> {
-    return enqueue(name, () =>
+    return enqueue(name, { kind: 'translate', segments: bodies.length }, () =>
       Promise.all(
         bodies.map(async (body) => {
           const response = await fetch(
@@ -242,7 +310,7 @@ function gate(config: Config) {
     const headers = { 'Content-Type': request.headers.get('Content-Type') ?? '' };
     const body = await request.arrayBuffer();
     try {
-      return await enqueue(name, async () => {
+      return await enqueue(name, { kind: 'transcribe', bytes: body.byteLength }, async () => {
         const response = await fetch(
           `http://127.0.0.1:${config.enginePort}/v1/audio/transcriptions`,
           { method: 'POST', body, headers, timeout: false },
@@ -270,7 +338,11 @@ function gate(config: Config) {
     try {
       const voice = config.voices[use]?.[language] as Voice;
       const body = engineForm(form, voice, language);
-      return await enqueue(name, () => synthesize(body));
+      return await enqueue(
+        name,
+        { kind: 'speech', use, language, chars: String(form.get('text')).length },
+        () => synthesize(body),
+      );
     } catch (error) {
       return new Response(String(error), { status: 503 });
     }
@@ -309,6 +381,6 @@ if (import.meta.main) {
     });
   for (const signal of ['SIGTERM', 'SIGINT'] as const)
     process.on(signal, () => {
-      stop().finally(() => process.exit(0));
+      stop('shutdown').finally(() => process.exit(0));
     });
 }

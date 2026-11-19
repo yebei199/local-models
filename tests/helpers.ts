@@ -87,7 +87,10 @@ export function freePort(): number {
 }
 
 /** Wait until `url` answers, failing at once with the child's stderr if it exits first. */
-export async function untilUp(child: Bun.Subprocess<'ignore', 'ignore', 'pipe'>, url: string) {
+export async function untilUp(
+  child: Pick<Bun.Subprocess<'ignore', 'ignore', 'pipe'>, 'exitCode' | 'stderr'>,
+  url: string,
+) {
   for (let attempt = 0; attempt < 100; attempt++) {
     if (await fetch(url).catch(() => undefined)) return;
     if (child.exitCode !== null) {

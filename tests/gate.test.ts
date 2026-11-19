@@ -78,9 +78,10 @@ async function start(dir: string, free = '12000') {
       engines: { one: engine('one'), two: engine('two') },
     }),
   );
+  const events = join(dir, 'events');
   const gate = Bun.spawn([process.execPath, resolve('src/gate.ts')], {
     env: { PATH: `${bin}:${process.env.PATH}`, PORT: String(gatePort), GATE_CONFIG: config },
-    stdout: 'ignore',
+    stdout: Bun.file(events),
     stderr: 'pipe',
   });
   children.push(gate);
@@ -98,10 +99,14 @@ async function start(dir: string, free = '12000') {
     extra?.(body);
     return fetch(`http://127.0.0.1:${gatePort}/v1/audio/speech`, { method: 'POST', body });
   };
-  return { gate, log, speak, url: `http://127.0.0.1:${gatePort}` };
+  return { gate, log, events, speak, url: `http://127.0.0.1:${gatePort}` };
 }
 
 const lines = (path: string) => readFileSync(path, 'utf8').trim().split('\n');
+
+/** The gate's log events, as the log store unpacks them. */
+const logged = (path: string) =>
+  lines(path).map((line) => JSON.parse(line) as Record<string, unknown> & { event: string });
 
 test('the route picks the engine and the language picks the fixed voice', async () => {
   const { speak } = await start(scratch());
@@ -163,6 +168,32 @@ test('an engine stays loaded for its route and leaves before the next one starts
     'start two',
     'speak two c',
   ]);
+});
+
+test('the log tells which model held the card, for how long, and why it left', async () => {
+  const { events, speak } = await start(scratch());
+  await speak('a', 'en');
+  await speak('c', 'ja');
+  await Bun.sleep(100);
+  const seen = logged(events);
+  expect(seen.map(({ event, model }) => `${event} ${model}`)).toEqual([
+    'model.start one',
+    'model.ready one',
+    'job one',
+    'model.exit one',
+    'model.start two',
+    'model.ready two',
+    'job two',
+  ]);
+  expect(seen[0]).toMatchObject({ free: 12000, budget: 9000 });
+  expect(seen[2]).toMatchObject({
+    kind: 'speech',
+    use: 'anki',
+    language: 'en',
+    chars: 1,
+    status: 200,
+  });
+  expect(seen[3]).toMatchObject({ cause: 'switch' });
 });
 
 test('simultaneous requests are served one at a time without an error', async () => {
@@ -446,7 +477,7 @@ describe('transcription', () => {
 });
 
 test('a model past its VRAM budget is stopped and the caller is told why', async () => {
-  const { speak, log } = await start(scratch());
+  const { speak, log, events } = await start(scratch());
   const response = await speak('grow', 'en');
   expect(response.status).toBe(503);
   expect(await response.text()).toContain(
@@ -454,4 +485,7 @@ test('a model past its VRAM budget is stopped and the caller is told why', async
   );
   expect(lines(log)).not.toContain('stop one');
   expect((await speak('hi', 'en')).status).toBe(200);
+  const exit = logged(events).find(({ event }) => event === 'model.exit');
+  expect(exit).toMatchObject({ cause: 'vram', signal: 'SIGKILL' });
+  expect(exit?.peak).toMatchObject({ vram: 99999 });
 });

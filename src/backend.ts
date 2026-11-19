@@ -1,4 +1,5 @@
 // Start the installed ComfyUI, and gate services on port and VRAM state.
+import { readFileSync } from 'node:fs';
 import { paths } from './manifest';
 
 /** The clock and probe seams bound cold-start waiting without slowing local contract tests. */
@@ -101,15 +102,56 @@ export async function processVram(pid: number): Promise<number> {
   return used;
 }
 
+/** Host memory as the gate's events report it, in MiB. */
+export interface Memory {
+  /** Resident and swapped-out memory of the model process itself. */
+  rss: number;
+  swap: number;
+  /** The whole unit (gate and model, page cache included): what `MemoryMax` is checked against. */
+  unit: number;
+  unitSwap: number;
+  /** What the rest of the host, the desktop included, can still get without swapping. */
+  available: number;
+}
+
+function readText(path: string): string {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function kib(text: string, key: string): number {
+  const value = new RegExp(`^${key}:\\s+(\\d+) kB`, 'm').exec(text)?.[1];
+  return Math.round(Number(value ?? 0) / 1024);
+}
+
+/** Read from /proc and the unit's own cgroup; a field the kernel does not expose reads as zero, so
+ * the gate also runs where there is no cgroup v2 or no process left to read. */
+export function memory(pid: number): Memory {
+  const status = readText(`/proc/${pid}/status`);
+  const group = `/sys/fs/cgroup${readText('/proc/self/cgroup').trim().split('::')[1] ?? '/'}`;
+  const bytes = (file: string) => Math.round(Number(readText(`${group}/${file}`)) / 2 ** 20) || 0;
+  return {
+    rss: kib(status, 'VmRSS'),
+    swap: kib(status, 'VmSwap'),
+    unit: bytes('memory.current'),
+    unitSwap: bytes('memory.swap.current'),
+    available: kib(readText('/proc/meminfo'), 'MemAvailable'),
+  };
+}
+
 /** Refuse to start beside a job holding the card, but give a finished one time to let go:
- * ComfyUI's /free answers seconds before the weights actually leave. */
-export async function requireVram(needed: number, seconds: number): Promise<void> {
+ * ComfyUI's /free answers seconds before the weights actually leave. Answers the free MiB. */
+export async function requireVram(needed: number, seconds: number): Promise<number> {
   let free = freeVram();
   for (let waited = 0; free < needed && waited < seconds; waited++) {
     await Bun.sleep(1000);
     free = freeVram();
   }
   if (free < needed) throw new Error(`Only ${free} MiB VRAM free, need ${needed} MiB`);
+  return free;
 }
 
 /** The port every port-bound subcommand operates on. */

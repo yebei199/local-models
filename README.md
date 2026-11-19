@@ -62,6 +62,19 @@ ComfyUI 和 TTS 结构相同：socket 收到第一个请求时拉起 `systemd-so
 - 反方向不杀任务：网关启动模型前查空闲显存，等 30 秒仍不够就拒绝请求。等待是因为 ComfyUI 的 `/free`
   先返回，权重几秒后才离开显存。
 - 服务只绑回环。远程的 `tts`、`asr` 用 `ssh -L` 把私有 unix socket 转发到网关端口。
+- 网关每个事件在 stdout 写一行 JSON，经 journald 进共享日志库，`| unpack_json` 后按字段查：
+
+  | `event` | 字段 |
+  |---|---|
+  | `model.start` | `model`、`pid`、启动时的空闲显存 `free`、显存上限 `budget` |
+  | `model.ready` | 加载秒数 `load` |
+  | `job` | `kind`（speech、transcribe、translate）、`use`、`language`、排队秒数 `waited`、`ran`、`status`、`error` |
+  | `usage` | 模型运行时每分钟一条：`vram`、`rss`、`swap`，整个单元的 `unit`、`unitSwap`，主机剩余 `available`（MiB） |
+  | `model.exit` | `cause`（`switch`、`shutdown`、`unready`、`vram` 超显存被杀、`oom` 超 MemoryMax、`crash`）、`ran`，以及运行期间的峰值 `peak` 和主机最少剩余内存 |
+
+  ```bash
+  logq '_time:1d _HOSTNAME:=pc3 _SYSTEMD_USER_UNIT:="tts-backend.service" "{\"event\"" | unpack_json | fields _time, event, model, cause, vram, rss, unit, available, peak'
+  ```
 
 RTX 5080 上的实测：冷启动约 35 秒，之后实时率约 0.8。不需要 flash-attn，上游的 `api.py`
 写死了 eager 注意力。不要用 `--fast-all`，它要 14.4 GiB。
