@@ -64,7 +64,7 @@ class AudioCpp:
         )
         return session
 
-    def clone(self, session, text, voice, transcript, seed):
+    def clone(self, session, text, voice, transcript, seed, options=None):
         lib = self.lib
         request = lib.audiocpp_request_create()
         result = ctypes.c_void_p()
@@ -79,9 +79,12 @@ class AudioCpp:
                 lib.audiocpp_request_set_option(request, b"reference_text", transcript.encode()),
                 "reference_text",
             )
+            settings = dict(options or {})
             if seed is not None:
+                settings["seed"] = str(seed)
+            for key, value in settings.items():
                 self.check(
-                    lib.audiocpp_request_set_option(request, b"seed", str(seed).encode()), "seed"
+                    lib.audiocpp_request_set_option(request, key.encode(), value.encode()), key
                 )
             self.check(lib.audiocpp_session_run(session, request, ctypes.byref(result)), "run")
             data = ctypes.POINTER(ctypes.c_float)()

@@ -194,5 +194,13 @@ Drama 3 在这张卡上的跑法（audio.cpp v0.9.5 的库已含 `fish_drama3`�
   3G 内存里的文件缓存只有约 1.7 GB，对 13 GB 的专家几乎没有缓存作用。这个预算下 Drama 3 不能用于制卡和口播。
   同日把 `MemoryHigh` 临时放到 8G 再测 3 句：32 到 48 秒出 4 到 5 秒，约慢 8 倍，越往后缓存越热越快；单元很快贴住 8G，
   主机剩余内存仍在 15.2 GB 以上，桌面合成器的内存压力为 0，zram 多换出约 0.4 GB。仍然太慢，按用户的决定改试 Drama3-small。
+- Drama3-small（`pentacoxian-dev/drama3-small-GGUF` 的 IQ3_XXS，9.74 GiB，4a3078e）：专家剪到 36 层各 100 个、4 层保留 256 个，
+  再蒸馏回原模型，只训了日语和英语。要打补丁的 audio.cpp（9277495a 加模型仓库里的补丁），上游和发布包都没有，2026-11-19
+  在 pc3 的 `nvidia/cuda:13.4.3-devel-ubuntu24.04` 容器里编出 C 库（`AUDIOCPP_BUILD_C_API=ON`），连同容器里的 cudart、cuBLAS、
+  cuFFT、NCCL 共 1.3 GB，经 nix-ld 运行。这个提交还没有 `codec_encoder_chunk_samples`。参数照模型卡：温度 0.7、top-p 0.7、
+  top-k 30、`max_tokens` 645、`max_pause_frames` 10 加 `silence_codes.json`。
+  8 句新句子（日、英、中，制卡和视频）：整个模型在显卡上，整卡峰值 11.4 GB（桌面约 2.2 GB），加载 26 秒，
+  每句 1.6 到 3.0 秒出 2.8 到 6.7 秒，约快于实时 2.2 倍；单元内存贴着 3G，主机剩余最低 13.9 GB。ASR 转写 8 句全部与原文一致，
+  中文两句也对。
 - 许可和 S2 不同：S2 任何营收都算商用；Drama 3 年营收 50 万美元以下可商用，须标注，禁止未经同意模仿可辨认的真人。
   所以公开视频能考虑它，S2 不能。S2 的权重、试听页和音频已删除，audio.cpp 的库留给 Drama 3。
