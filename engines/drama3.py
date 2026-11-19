@@ -1,4 +1,4 @@
-"""Drama3-small through audio.cpp's C library: cloned speech, tone set by [tags] in the text."""
+"""Fish Audio Drama 3 through audio.cpp's C library: cloned speech, tone set by [tags] in the text."""
 
 import ctypes
 import subprocess
@@ -118,26 +118,25 @@ def decode(path):
 
 
 def main():
-    args = common.arguments("--library", "--model", "--silence-codes", "--threads")
+    args = common.arguments("--library", "--model", "--expert-cache", "--threads")
     audio = AudioCpp(args.library)
-    # The whole model sits on the card: no expert layer on the CPU, so host memory holds little
-    # beyond the page cache of the GGUF the kernel can drop.
+    # Loading the expert banks whole put ~10 GB of anonymous memory on a desktop host and pushed
+    # its programs into swap. Here the routed experts stay in the GGUF and only the ones the router
+    # picks are copied into a fixed number of card slots per layer, so host memory holds page cache
+    # the kernel can drop, and VRAM is the dense backbone plus those slots. The reference encoder
+    # runs in chunks so its graph does not need the 1.2 GB a whole reference took.
     session = audio.session(
         args.model,
         int(args.threads),
-        {"moe_cpu_expert_layers": "0", "fish_drama3.context_length": "2048"},
+        {
+            "moe_disk_experts": "true",
+            "moe_expert_cache_size": args.expert_cache,
+            "moe_cpu_expert_layers": "0",
+            "moe_disk_expert_read_threads": "4",
+            "fish_drama3.codec_encoder_chunk_samples": "65536",
+            "fish_drama3.context_length": "2048",
+        },
     )
-    # The model card's settings. Pruning makes takes stall in silence more often than the full
-    # model; after 10 silent frames the patch masks the silence codes, so a take resumes or ends.
-    # 645 frames is 30 s, the longest take the card keeps within a 12 GB card.
-    sampling = {
-        "temperature": "0.7",
-        "top_p": "0.7",
-        "top_k": "30",
-        "max_tokens": "645",
-        "max_pause_frames": "10",
-        "silence_codes": args.silence_codes,
-    }
 
     def synthesize(form, reference):
         if common.text(form, "instruction"):
@@ -149,7 +148,6 @@ def main():
             decode(reference),
             common.text(form, "ref_text"),
             None if seed is None else seed % 2**31,
-            sampling,
         )
 
     common.serve(args.port, synthesize)
