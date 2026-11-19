@@ -16,12 +16,13 @@ tts batch --batch-file F.jsonl   # 每行 {"text","output","lang","use"}，可�
 
 | `--use` | 用途 | en、zh | ja |
 |---|---|---|---|
-| `anki`（默认） | 自用制卡 | Drama 3 | Drama 3 |
-| `video` | 公开视频 | Drama 3 | Drama 3 |
+| `anki`（默认） | 自用制卡 | Drama3-small | Drama3-small |
+| `video` | 公开视频 | Drama3-small | Drama3-small |
 
 - `--lang` 必填，命令不检测语言。按卡片或稿子的语言传，不要按字面猜：`学校` 这样的纯汉字词字面上分不出日语和中文。
 - 只要内容会公开发布就用 `--use video`：两种用途的参考音不同，视频用讲故事的那条。
-- 公开发布的视频要在说明或片尾标注 “Built with Fish Audio”，这是 Drama 3 许可的条件。
+- 公开发布的视频要在说明或片尾标注 “Built with Fish Audio”，这是 Drama3-small 沿用的 Drama 3 许可的条件。
+- 单句控制在 20 秒以内：Drama3-small 一句最长 30 秒，再长显存会超过网关的上限被杀，长段按句拆开交给 `tts batch`。
 - 一句话只走一个模型，`--lang` 传主语言。这些实测不用切分：中文夹英文和缩写、日语夹英文缩写和常见外来语、
   单词或短语单独生成。
 - 英语或中文句子里夹日语、英语句子里夹中文读不准，要拆开，单词放到卡片自己的字段里分别生成。

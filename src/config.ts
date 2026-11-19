@@ -12,8 +12,6 @@ export interface EngineConfig {
   requiredVram?: number;
   /** ming-tiny only: expert weights quantized to 4 or 8 bits on load. */
   bits?: 4 | 8;
-  /** drama3 only: card slots per layer for experts read from the GGUF (8 to 256); sets its VRAM. */
-  expertCache?: number;
 }
 
 /** The host's own values; nothing here is checked into the repo. */

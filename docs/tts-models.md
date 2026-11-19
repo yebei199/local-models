@@ -19,7 +19,8 @@
 | Higgs TTS 3 4B | 中英日等 | 盲听 18 题没拿到一次第一 | Creator Use Grant | 已淘汰，已删除 |
 | Kokoro 82M | 英 | 不再比较 | Apache 2.0 | 已删除 |
 | Fish S2 Pro 5B | 中英日等 | 制卡盲听 9 题赢 4，和现有路由打平；语气标签有效 | Fish Audio 研究许可，任何营收都要商业授权 | 已淘汰，已删除 |
-| Fish Drama 3（35B-A3B MoE，Q3 专家） | 中英日等 | 口播短句 5 题赢 3，整篇第一；制卡和英日视频 15 句赢 12、输 1；seed 间波动大 | Fish Audio 社区许可：年营收 50 万美元以下可商用，须标注 Built with Fish Audio | 候选，见下文 |
+| Fish Drama 3（35B-A3B MoE，Q3 专家） | 中英日等 | 口播短句 5 题赢 3，整篇第一；制卡和英日视频 15 句赢 12、输 1；seed 间波动大 | Fish Audio 社区许可：年营收 50 万美元以下可商用，须标注 Built with Fish Audio | 完整版放不进 12 GB 显存加 3 GB 内存，改用 Drama3-small |
+| Drama3-small（Drama 3 剪枝蒸馏，IQ3_XXS） | 日英训练，中文实测也读对 | 同上 | 现行，全部路由 |
 | MOSS-TTS-Local-Transformer-v1.5 4B | 中英日等 31 种 | 口播盲听三句都输给 Ming：更自然，但不抓耳 | Apache 2.0 | 已淘汰，已删除 |
 
 听感由用户判定。VoxCPM2 的 Whisper 转写准确率不低于 Qwen，仍被听感淘汰，所以转写比对只能
@@ -28,7 +29,9 @@
 ## 当前选择
 
 - 音色：Qwen VoiceDesign 生成，不是克隆真人。每种语言一条同语言参考，英语用「软萌害羞」，中日用「柔和害羞」。
-- 2026-11-19 起，制卡和视频的中英日全部用 Drama 3（audio.cpp，Q3 专家，22 层放 CPU），语气写成句中标签。
+- 2026-11-19 起，制卡和视频的中英日全部用 Drama 3，语气写成句中标签。完整版（audio.cpp，Q3 专家，22 层放 CPU）
+  把 pc3 拖到卡死，按需读专家又慢 8 到 25 倍，同日换成 Drama3-small：自编的 audio.cpp 发布在 yebei199/audio.cpp 的
+  `drama3-small-v1`，整个模型放显卡，约快于实时 2.2 倍。中文不在它的训练语言里，用户听过后不满意就把中文退回旧路由。
   参考不变：制卡用安静的参考，视频中文用讲故事的「参考 5」（StoryZh），视频英日用制卡参考。
 - 之前的路由：制卡英中 Breeze、日语 Irodori；视频中英 Ming tiny 带表演指令、日语 Ming 0.5B。这些引擎还装着，
   用户用几天确认后再删。

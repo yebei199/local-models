@@ -43,8 +43,10 @@ const llamaCpp = (asset: string, sha256: string) => ({
   sha256,
 });
 
+/** Our build of audio.cpp's `drama3-small` branch: upstream 9277495a plus the model's patch, which
+ * no upstream release carries. The release notes say how it was built. */
 const audioCpp = (asset: string, sha256: string) => ({
-  url: `https://github.com/0xShug0/audio.cpp/releases/download/v0.9.5/${asset}`,
+  url: `https://github.com/yebei199/audio.cpp/releases/download/drama3-small-v1/${asset}`,
   sha256,
 });
 
@@ -174,27 +176,32 @@ export const manifest: Record<Name, Component> = {
     ],
   },
   drama3: {
-    // audio.cpp's C library runs Drama 3 with part of the experts on the CPU, which is what fits it on
-    // a 16 GB card; its release has no Linux CLI, so engines/drama3.py calls the library through
-    // ctypes. The venv only holds numpy for engines/common.py. Like llama.cpp, it runs through nix-ld,
-    // which also supplies libgomp and libstdc++.
+    // Drama3-small, the pruned and distilled Drama 3: the full model needs ~19 GB for weights and,
+    // held to a desktop's spare 12 GB of VRAM and 3 GB of RAM, streams experts from disk at a
+    // twenty-fifth of real time. This one sits whole on the card. engines/drama3.py calls audio.cpp's
+    // C library through ctypes; the venv only holds numpy for engines/common.py. Like llama.cpp, it
+    // runs through nix-ld, which also supplies libgomp and libstdc++.
     release: [
       audioCpp(
-        'audio-v0.9.5-lib-ubuntu-x64-cuda13.3.tar.gz',
-        '61091545078e7c0b1ee24f7b48ac3a7f32b7a32d30e419ea65abe35c788d7c4b',
+        'audio-drama3-small-lib-linux-x64-cuda13.4.tar.gz',
+        '57af5f7fa9c58d1d97cd62a3e790febce0e85d49578632c37ef08c48880888d8',
       ),
       audioCpp(
-        'audio-v0.9.5-cudart-ubuntu-x64-cuda13.3.tar.gz',
-        'd8c6bf84655310ae34702486ba8641bbe909b22a66605b2cb08fc24b6af84bf9',
+        'audio-drama3-small-cudart-linux-x64-cuda13.4.tar.gz',
+        '2bef2d319e0c11cb74b5fd4fe3e066dff47417301b468414069dc81d4aab963e',
       ),
     ],
     python: { version: '3.12', lock: 'drama3' },
     weights: [
       {
-        // Community GGUF of the 2026-10-29 checkpoint: Q8_0 backbone, Q3_K experts.
-        repository: 'Jmica/Drama-3-GGUF',
-        revision: '060acc8e5d9e5d16baf647c775dfe1a1438f5f35',
-        files: { 'drama-3-backbone-8bit-experts-Q3_K_S.gguf': 'weights/model.gguf' },
+        // IQ3_XXS, 100 experts in 36 of 40 layers; trained on Japanese and English only. The
+        // silence codes drive the patch's pause fix, without which takes can stall in silence.
+        repository: 'pentacoxian-dev/drama3-small-GGUF',
+        revision: '4a3078e885344bb9b24d511cec389d2726854d15',
+        files: {
+          'drama3-small-IQ3_XXS.gguf': 'weights/model.gguf',
+          'silence_codes.json': 'weights/',
+        },
       },
     ],
   },
