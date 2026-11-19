@@ -359,7 +359,7 @@ function services(config: HostConfig, places: Places, bun: string, plan: Plan): 
           TimeoutStartSec: 300,
           // The model host is also a desktop: a model that outgrows this is OOM-killed inside the
           // unit instead of pushing the desktop into swap, and the gate lives on to say so.
-          MemoryMax: config.gateMemoryMax ?? '8G',
+          MemoryMax: config.gateMemoryMax ?? '3G',
           MemorySwapMax: 0,
           OOMPolicy: 'continue',
         },
