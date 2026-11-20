@@ -55,8 +55,8 @@ scene-narrate、scene-show         在调用方本机运行，只用 ffmpeg 和 
 ```
 
 - 第一个连接触发 socket，front 依赖 backend，`model-wait` 等端口绑定后 front 才开始转发。
-- `tts.socket` 不开机自启，由用户在模型主机上 `systemctl --user start tts.socket` 手动打开：Drama 3 曾经加载后占掉主机大部分
-  空闲内存和显存，开机自己起来会拖慢桌面。`setup` 写出它但不 enable，并去掉旧版留下的开机链接。它关着时 `tts` 和 `asr`
+- `tts.socket` 不开机自启，由用户在模型主机上 `systemctl --user start tts.socket` 手动打开：模型加载后占约 3 GB
+  内存和 10 GB 显存，用户只在要用时才让出（2026-11-20 实测 Drama3-small 后仍这样定）。`setup` 写出它但不 enable，并去掉旧版留下的开机链接。它关着时 `tts` 和 `asr`
   报错说明怎么启动，AI 不要自己去启动它。
 - 空闲 `idleTime` 后 proxyd 退出，backend 随 `StopWhenUnneeded` 停止，显存归还。
 - model-gate 按 `use` 和 `language` 选模型，串行处理请求；换模型时先停旧的，查过显存再启动新的。
